@@ -345,6 +345,129 @@ svg.panning {
   fill: var(--orca-primary-foreground);
 }
 
+/* ---------- Branch changes: A added, M modified, Y YAML, ƒ macro ---------- */
+
+.node.changed .box {
+  stroke-width: 2.5;
+}
+
+.node.changed-added .box {
+  stroke: #16a34a;
+}
+
+.node.changed-modified .box {
+  stroke: #d97706;
+}
+
+.node.changed-yaml .box {
+  stroke: #0891b2;
+}
+
+.node.changed-macro .box {
+  stroke: #9333ea;
+  stroke-dasharray: 5 3;
+}
+
+.node rect.change-tag {
+  stroke: none;
+}
+
+.node.changed-added rect.change-tag {
+  fill: #16a34a;
+}
+
+.node.changed-modified rect.change-tag {
+  fill: #d97706;
+}
+
+.node.changed-yaml rect.change-tag {
+  fill: #0891b2;
+}
+
+.node.changed-macro rect.change-tag {
+  fill: #9333ea;
+}
+
+.node .change-letter {
+  fill: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+span.change-tag {
+  display: inline-block;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+span.change-tag.changed-added {
+  background: #16a34a;
+}
+
+span.change-tag.changed-modified {
+  background: #d97706;
+}
+
+span.change-tag.changed-yaml {
+  background: #0891b2;
+}
+
+span.change-tag.changed-macro {
+  background: #9333ea;
+}
+
+#changes.active {
+  background: var(--orca-primary);
+  color: var(--orca-primary-foreground);
+  border-color: transparent;
+}
+
+.explorer h3 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+}
+
+.explorer .legend {
+  line-height: 1.8;
+}
+
+.files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+pre.command {
+  margin: 4px 0;
+  padding: 6px;
+  border-radius: 4px;
+  background: var(--orca-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.change-note {
+  margin: 6px 0;
+  padding: 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--orca-muted) 70%, transparent);
+}
+
+.change-note .files {
+  margin-top: 4px;
+}
+
 .dim {
   opacity: 0.18;
 }

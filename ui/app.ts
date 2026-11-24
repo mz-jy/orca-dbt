@@ -2,7 +2,7 @@
 // side by side when the panel is wide, the graph above a Catalog/Model sheet when it is narrow.
 // Every click in one view moves the others: picking a node in the catalog draws its lineage and
 // shows its docs; clicking a node in the graph shows its docs and marks it in the catalog.
-import type { Direction, GroupBy, LineageGraph, ProjectStatus } from '../src/protocol'
+import type { BranchChanges, Direction, GroupBy, LineageGraph, ProjectStatus } from '../src/protocol'
 import { CatalogView } from './catalog-view'
 import { byId, el, errorMessage } from './dom'
 import { GraphView, type Orientation } from './graph-view'
@@ -28,6 +28,7 @@ const downSelect = byId<HTMLSelectElement>('down')
 const orientationButton = byId<HTMLButtonElement>('orientation')
 const sheetBar = byId<HTMLElement>('sheet-bar')
 const detailsElement = byId<HTMLElement>('details')
+const changesButton = byId<HTMLButtonElement>('changes')
 
 /** What the page shows; the choices a person makes are kept across reloads in localStorage. */
 const state = {
@@ -37,6 +38,9 @@ const state = {
   /** A dbt selector; while set, the graph draws what it selects instead of the focus's lineage. */
   selector: localStorage.getItem('selector') ?? '',
   selectedCount: 0,
+  /** While on, the graph draws what the branch changed and everything downstream of it. */
+  changesMode: localStorage.getItem('changes') === '1',
+  changes: null as BranchChanges | null,
   graph: null as LineageGraph | null,
   /** Nodes whose hidden neighbours the person revealed with a +n badge. */
   expand: [] as { id: string; direction: Direction }[],
@@ -68,12 +72,15 @@ const graphView = new GraphView(
 
 const catalogView = new CatalogView(byId<HTMLElement>('explorer'), {
   open: (id) => void focusNode(id),
+  show: (id) => void showNode(id),
   loadLevel: (by, path) => orca.plugin.request('catalog.level', { by, path }),
   groupBy: (by) => {
     state.groupBy = by
     localStorage.setItem('groupBy', by)
     catalogView.showTree(by)
   },
+  refreshChanges: () => void refreshChanges(),
+  parse: () => void runParse(),
   error: report
 })
 
@@ -107,6 +114,8 @@ async function load(): Promise<void> {
     }
     void orca.plugin.request('catalog.selectors').then(renderYamlSelectors, report)
     void orca.plugin.request('query.engine').then((engine) => modelView.setEngine(engine), report)
+    // The branch's changes first: every graph marks them.
+    await loadChanges()
     await Promise.all([renderCatalog(), loadGraph(), state.focus ? showNode(state.focus, { openSheet: false }) : modelView.show(null, false)])
   } catch (cause) {
     report(cause)
@@ -118,7 +127,11 @@ async function loadGraph(): Promise<void> {
   try {
     let graph: LineageGraph | null = null
     let emptyText = 'Pick a node in the catalog, or enter a dbt selector, to draw its lineage.'
-    if (state.status?.ok && state.selector) {
+    if (state.status?.ok && state.changesMode) {
+      const answer = await orca.plugin.request('lineage.changesGraph', { expand: state.expand })
+      graph = answer.graph
+      emptyText = answer.error ?? 'No dbt node changed in this branch.'
+    } else if (state.status?.ok && state.selector) {
       const answer = await orca.plugin.request('lineage.selectGraph', { selector: state.selector, expand: state.expand })
       graph = answer.graph
       state.selectedCount = answer.count
@@ -133,16 +146,17 @@ async function loadGraph(): Promise<void> {
     }
     if (seq !== graphSeq) return
     state.graph = graph
-    graphView.show(graph, emptyText)
+    // A changes graph opens on the first change, which may sit far from the graph's middle.
+    graphView.show(graph, emptyText, state.changesMode && state.changes?.ok ? (state.changes.changed[0]?.id ?? null) : null)
     graphView.select(modelView.nodeId)
-    modelView.setGraphFocus(!state.selector && modelView.nodeId === state.focus)
+    modelView.setGraphFocus(isGraphFocus(modelView.nodeId))
     renderStatus()
   } catch (cause) {
     report(cause)
   }
 }
 
-/** The explorer: search matches, the selector's nodes, or the group-by tree. */
+/** The explorer: search matches, the branch's changes, the selector's nodes, or the tree. */
 async function renderCatalog(): Promise<void> {
   const query = state.query.trim()
   if (query) {
@@ -151,6 +165,9 @@ async function renderCatalog(): Promise<void> {
     if (seq === searchSeq) {
       catalogView.showList(`${found.length}${found.length === 100 ? '+' : ''} match${found.length === 1 ? '' : 'es'} for “${query}”`, found)
     }
+  } else if (state.changesMode) {
+    if (state.changes?.ok) catalogView.showChanges(state.changes)
+    else catalogView.showMessage(state.changes?.message ?? 'Reading the branch…', state.changes ? 'warning' : 'muted')
   } else if (state.selector) {
     const selection = await orca.plugin.request('catalog.select', { selector: state.selector })
     if (selection.error) catalogView.showMessage(selection.error, 'warning')
@@ -167,7 +184,56 @@ async function renderCatalog(): Promise<void> {
   catalogView.setCurrent(modelView.nodeId)
 }
 
+// ---------- Branch changes ----------
+
+/** Reads what the branch changed and marks those nodes in every graph. */
+async function loadChanges(): Promise<void> {
+  try {
+    state.changes = await orca.plugin.request('lineage.changes')
+  } catch (cause) {
+    state.changes = { ok: false, message: errorMessage(cause) }
+  }
+  const changes = state.changes
+  graphView.setMarks(changes.ok ? Object.fromEntries(changes.changed.map((node) => [node.id, node.change])) : {})
+  const count = changes.ok ? changes.changed.length : 0
+  changesButton.textContent = count > 0 ? `± Changes (${count})` : '± Changes'
+  changesButton.title = changes.ok
+    ? `What ${changes.head} changed since ${changes.base}, and everything downstream`
+    : changes.message
+}
+
+async function refreshChanges(): Promise<void> {
+  await loadChanges()
+  if (state.changesMode) await Promise.all([loadGraph(), state.query ? null : renderCatalog().catch(report)])
+  renderStatus()
+}
+
+function setChangesMode(on: boolean): void {
+  state.changesMode = on
+  localStorage.setItem('changes', on ? '1' : '0')
+  changesButton.classList.toggle('active', on)
+  state.expand = []
+}
+
+async function toggleChanges(): Promise<void> {
+  setChangesMode(!state.changesMode)
+  if (state.changesMode) {
+    setSelector('')
+    state.query = ''
+    searchInput.value = ''
+    setSheet('catalog')
+    await loadChanges()
+  }
+  await Promise.all([loadGraph(), renderCatalog().catch(report)])
+  renderStatus()
+}
+
 // ---------- Moving between nodes ----------
+
+/** Whether the lineage is drawn around `id`: no selector, no changes graph, and it is the focus. */
+function isGraphFocus(id: string | null): boolean {
+  return !state.selector && !state.changesMode && id === state.focus
+}
 
 /** Shows `id`'s docs and data, marks it in the graph and the catalog. */
 async function showNode(id: string, options: { openSheet?: boolean } = {}): Promise<void> {
@@ -175,7 +241,8 @@ async function showNode(id: string, options: { openSheet?: boolean } = {}): Prom
   try {
     const focus = await orca.plugin.request('lineage.node', { id })
     if (seq !== nodeSeq) return
-    modelView.show(focus, !state.selector && id === state.focus)
+    const change = state.changes?.ok ? (state.changes.changed.find((node) => node.id === id) ?? null) : null
+    modelView.show(focus, isGraphFocus(id), change)
     graphView.select(focus ? id : null)
     catalogView.setCurrent(focus ? id : null)
     if (focus && options.openSheet !== false) setSheet('model')
@@ -184,12 +251,13 @@ async function showNode(id: string, options: { openSheet?: boolean } = {}): Prom
   }
 }
 
-/** Draws the lineage around `id` (leaving selector mode) and shows it. */
+/** Draws the lineage around `id` (leaving selector and changes modes) and shows it. */
 async function focusNode(id: string): Promise<void> {
   state.focus = id
   localStorage.setItem('focus', id)
   state.expand = []
   if (state.selector) setSelector('')
+  if (state.changesMode) setChangesMode(false)
   await Promise.all([loadGraph(), showNode(id), state.query ? null : renderCatalog()])
 }
 
@@ -204,6 +272,7 @@ function setSelector(text: string): void {
 
 async function applySelector(text: string): Promise<void> {
   setSelector(text)
+  if (state.changesMode) setChangesMode(false)
   state.query = ''
   searchInput.value = ''
   setSheet('catalog')
@@ -235,7 +304,7 @@ function renderStatus(): void {
   const status = state.status
   const ready = status?.ok === true
   searchInput.disabled = selectorInput.disabled = !ready
-  upSelect.disabled = downSelect.disabled = !ready || state.selector !== ''
+  upSelect.disabled = downSelect.disabled = !ready || state.selector !== '' || state.changesMode
   if (!status) {
     statusLine.textContent = 'Reading the dbt manifest…'
     return
@@ -250,7 +319,9 @@ function renderStatus(): void {
     `${status.nodeCount} nodes`
   ]
   if (status.dbtVersion) parts.push(`dbt ${status.dbtVersion}`)
-  if (state.selector) parts.push(`${state.selectedCount} selected`)
+  if (state.changesMode && state.changes?.ok) {
+    parts.push(`${state.changes.changed.length} changed · ${state.changes.impacted.length} downstream vs ${state.changes.base}`)
+  } else if (state.selector) parts.push(`${state.selectedCount} selected`)
   if (state.graph) parts.push(`${state.graph.nodes.length} drawn${state.graph.truncated ? ' (limit reached)' : ''}`)
   statusLine.textContent = parts.join(' · ')
 }
@@ -306,6 +377,11 @@ selectorInput.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') selectorInput.value = state.selector
 })
 yamlSelect.addEventListener('change', () => void applySelector(yamlSelect.value ? `selector:${yamlSelect.value}` : ''))
+changesButton.addEventListener('click', () => void toggleChanges())
+// Back from editing files: read the branch again, so new edits show up in the graph.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.status?.ok) void refreshChanges()
+})
 clearSelectorButton.addEventListener('click', () => void applySelector(''))
 
 for (const [select, key] of [
@@ -379,5 +455,6 @@ const savedHeight = localStorage.getItem('sheetHeight')
 if (savedHeight) workspaceElement.style.setProperty('--sheet-height', savedHeight)
 setSheet(localStorage.getItem('sheet') === 'model' ? 'model' : 'catalog')
 setSelector(state.selector)
+setChangesMode(state.changesMode)
 renderOrientation()
 void load()

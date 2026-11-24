@@ -1,8 +1,8 @@
 // The model sheet: a node's docs, tags, owner, columns and tests, its direct neighbours, and its
 // data, queried through the project's own dbt (the worker runs `dbt show`).
 import { previewSql } from '../src/graph'
-import type { DbtEngine, NodeDetail, NodeFocus, NodeSummary, QueryResult } from '../src/protocol'
-import { el, errorMessage, fill, swatch } from './dom'
+import type { ChangedNode, DbtEngine, NodeDetail, NodeFocus, NodeSummary, QueryResult } from '../src/protocol'
+import { CHANGE_LABELS, changeTag, el, errorMessage, fill, swatch } from './dom'
 import { renderMarkdown } from './markdown'
 
 export type ModelViewEvents = {
@@ -19,6 +19,8 @@ const ROW_LIMITS = ['10', '20', '50', '100', '500']
 export class ModelView {
   private shown: NodeFocus | null = null
   private isGraphFocus = false
+  /** How the current branch changed the shown node, when it did. */
+  private change: ChangedNode | null = null
   private engine: DbtEngine | null = null
   private job: { jobId: string; sql: string } | null = null
   private result: QueryResult | null = null
@@ -55,8 +57,11 @@ export class ModelView {
     this.renderData()
   }
 
-  /** Shows `focus` (null: the empty state); `isGraphFocus` hides the "Focus in graph" button. */
-  show(focus: NodeFocus | null, isGraphFocus: boolean): void {
+  /**
+   * Shows `focus` (null: the empty state); `isGraphFocus` hides the "Focus in graph" button;
+   * `change` says how the branch changed it.
+   */
+  show(focus: NodeFocus | null, isGraphFocus: boolean, change: ChangedNode | null = null): void {
     if (focus?.node.id !== this.shown?.node.id) {
       if (this.job) void orca.plugin.request('query.cancel', { jobId: this.job.jobId }).catch(() => {})
       this.job = null
@@ -66,6 +71,7 @@ export class ModelView {
     }
     this.shown = focus
     this.isGraphFocus = isGraphFocus
+    this.change = change
     this.render()
   }
 
@@ -108,6 +114,15 @@ export class ModelView {
     fill(
       this.root,
       el('div', { class: 'model-head' }, swatch(node.type), el('h2', {}, node.name), el('span', { class: 'badge' }, node.type)),
+      this.change
+        ? el(
+            'div',
+            { class: 'change-note' },
+            changeTag(this.change.change),
+            ` Changed in this branch: ${CHANGE_LABELS[this.change.change]}`,
+            el('div', { class: 'files' }, ...this.change.files.map((file) => el('code', {}, file)))
+          )
+        : null,
       node.tags.length > 0
         ? el('div', { class: 'tags' }, ...node.tags.map((tag) => button(`#${tag}`, () => this.events.selectTag(tag), 'tag')))
         : null,

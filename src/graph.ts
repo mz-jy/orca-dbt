@@ -21,6 +21,10 @@ export type GraphNode = Omit<NodeDetail, 'parents' | 'children'> & {
   config: Record<string, string | number | boolean | string[]>
   group: string | null
   access: string | null
+  /** The YAML file that documents or configures the node (its patch_path), project-relative. */
+  patchFile: string | null
+  /** Macros the node's SQL calls directly. */
+  macros: string[]
 }
 
 /**
@@ -37,6 +41,8 @@ export type Graph = {
   parents: Map<string, string[]>
   children: Map<string, string[]>
   selectors: Record<string, RawSelector>
+  /** Macros by id: their file (project-relative) and the macros they call, for change impact. */
+  macros: Map<string, { file: string; packageName: string; uses: string[] }>
 }
 
 type RawColumn = { name?: string; description?: string; data_type?: string | null }
@@ -59,7 +65,9 @@ type RawNode = {
   fqn?: string[]
   columns?: Record<string, RawColumn>
   config?: ({ materialized?: string; meta?: Record<string, unknown> | null } & Record<string, unknown>) | null
-  depends_on?: { nodes?: string[] }
+  depends_on?: { nodes?: string[]; macros?: string[] }
+  /** The YAML that patches the node: `pkg://path.yml` in dbt v1, `path.yml` in dbt v2. */
+  patch_path?: string | null
   /** Tests: the node they test (dbt 1.5+), the column, and the generic test's name. */
   attached_node?: string | null
   column_name?: string | null
@@ -76,6 +84,7 @@ export type RawManifest = {
   saved_queries?: Record<string, RawNode>
   parent_map?: Record<string, string[]>
   selectors?: Record<string, RawSelector>
+  macros?: Record<string, { original_file_path?: string; package_name?: string; depends_on?: { macros?: string[] } }>
 }
 
 type RawCatalogNode = {
@@ -156,7 +165,13 @@ export function buildGraph(manifest: RawManifest, catalog?: RawCatalog | null): 
     nodes,
     parents,
     children,
-    selectors: manifest.selectors ?? {}
+    selectors: manifest.selectors ?? {},
+    macros: new Map(
+      Object.entries(manifest.macros ?? {}).map(([id, macro]) => [
+        id,
+        { file: macro.original_file_path ?? '', packageName: macro.package_name ?? '', uses: macro.depends_on?.macros ?? [] }
+      ])
+    )
   }
 }
 
@@ -208,7 +223,9 @@ function toNode(id: string, type: string, raw: RawNode, projectName: string): Gr
       )
     ),
     group: raw.group ?? null,
-    access: raw.access ?? null
+    access: raw.access ?? null,
+    patchFile: raw.patch_path ? raw.patch_path.replace(/^[^/:]+:\/\//, '') : null,
+    macros: raw.depends_on?.macros ?? []
   }
 }
 

@@ -1,4 +1,8 @@
 // Runs src/worker.ts's activate(orca) over a mock host, against the fixture dbt project.
+import { execFileSync } from 'node:child_process'
+import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import * as main from './worker'
@@ -40,6 +44,78 @@ function fixtureHost(
     }
   })
 }
+
+/** A host whose focused workspace is `path`, with the plugin's settings. */
+function workspaceHost(path: string, settings: Record<string, string>) {
+  const id = `repo-1::${path}`
+  return mockHost({
+    settings,
+    results: {
+      'workspace.readContext': { workspaceId: id, branch: 'feature', displayName: 'feature', terminals: [] },
+      'workspace.list': {
+        workspaces: [{ id, kind: 'worktree', name: 'feature', path, branch: 'feature', hostId: 'local' }],
+        truncated: false
+      }
+    }
+  })
+}
+
+test('shows what a branch changed since its base and what that reaches', async () => {
+  // A copy of the fixture project in its own repository: main, then a feature branch.
+  const repo = mkdtempSync(join(tmpdir(), 'orca-dbt-changes-'))
+  try {
+    cpSync(root, repo, { recursive: true })
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-C', repo, '-c', 'user.email=test@example.com', '-c', 'user.name=Test', ...args], { stdio: 'pipe' })
+    git('init', '-q', '-b', 'main')
+    git('add', '.')
+    git('commit', '-q', '-m', 'base')
+    git('checkout', '-q', '-b', 'feature')
+    appendFileSync(join(repo, 'analytics/models/staging/stg_orders.sql'), 'where amount > 0\n')
+    git('commit', '-q', '-am', 'filter orders')
+    // Untracked and not in the manifest yet.
+    writeFileSync(join(repo, 'analytics/models/marts/refunds.sql'), 'select 1\n')
+
+    const worker = await mountWorker(main, { host: workspaceHost(repo, { projectDir: '', baseBranch: 'main' }) })
+    const changes = await worker.request('lineage.changes')
+    assert.ok(changes.ok, changes.ok ? '' : changes.message)
+    if (!changes.ok) return
+    assert.deepEqual([changes.head, changes.base], ['feature', 'main'])
+    assert.deepEqual(
+      changes.changed.map((node) => [node.name, node.change, node.files]),
+      [['stg_orders', 'modified', ['models/staging/stg_orders.sql']]]
+    )
+    assert.deepEqual(
+      changes.impacted.map((node) => node.name),
+      ['weekly_dashboard', 'customers', 'orders']
+    )
+    assert.deepEqual(changes.unmapped, ['models/marts/refunds.sql'])
+    // refunds.sql is newer than the manifest: a parse would add it.
+    assert.equal(changes.manifestStale, true)
+    assert.equal(changes.command, 'dbt build --select stg_orders+')
+
+    const { graph } = await worker.request('lineage.changesGraph', {})
+    assert.deepEqual(graph?.nodes.map((node) => node.name).sort(), ['customers', 'orders', 'stg_orders', 'weekly_dashboard'])
+    await worker.deactivate()
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('says when the project is not in a git repository', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'orca-dbt-nogit-'))
+  try {
+    cpSync(root, folder, { recursive: true })
+    const worker = await mountWorker(main, { host: workspaceHost(folder, { projectDir: '' }) })
+    assert.deepEqual(await worker.request('lineage.changes'), {
+      ok: false,
+      message: 'This dbt project is not in a git repository.'
+    })
+    await worker.deactivate()
+  } finally {
+    rmSync(folder, { recursive: true, force: true })
+  }
+})
 
 test('finds the nested project and answers lineage without tests', async () => {
   const host = fixtureHost()

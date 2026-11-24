@@ -2,8 +2,8 @@
 // draws it as SVG, with pan, zoom, chain highlighting and the +n badges that reveal hidden
 // neighbours. It reports clicks; the page decides what they mean.
 import { Graph, layout, type Point } from '../vendor/dagre.esm.js'
-import type { Direction, GraphNodeView, LineageGraph } from '../src/protocol'
-import { svgEl, typeColor } from './dom'
+import type { ChangeKind, Direction, GraphNodeView, LineageGraph } from '../src/protocol'
+import { CHANGE_LABELS, CHANGE_LETTERS, svgEl, typeColor } from './dom'
 
 export type Orientation = 'LR' | 'TB'
 
@@ -31,6 +31,10 @@ export class GraphView {
   private view = { x: 0, y: 0, k: 1 }
   private bounds = { width: 0, height: 0 }
   private focusCenter: Point | null = null
+  /** Nodes the branch changed, marked in every graph the page draws. */
+  private marks: Record<string, ChangeKind> = {}
+  /** What the view centres on when the graph has no focus and is too big to fit readably. */
+  private centerOn: string | null = null
   private readonly viewport: SVGGElement
   private readonly edgesLayer: SVGGElement
   private readonly nodesLayer: SVGGElement
@@ -52,9 +56,13 @@ export class GraphView {
     }).observe(svg)
   }
 
-  /** Draws `graph` (or `emptyText` when there is nothing to draw) and fits it. */
-  show(graph: LineageGraph | null, emptyText: string): void {
+  /**
+   * Draws `graph` (or `emptyText` when there is nothing to draw) and fits it; a graph too big to
+   * fit readably centres on its focus, else on `centerOn`, else on its middle.
+   */
+  show(graph: LineageGraph | null, emptyText: string, centerOn: string | null = null): void {
     this.graph = graph
+    this.centerOn = centerOn
     this.draw(emptyText)
     this.fit()
   }
@@ -63,6 +71,11 @@ export class GraphView {
     this.orientation = orientation
     this.draw('')
     this.fit()
+  }
+
+  setMarks(marks: Record<string, ChangeKind>): void {
+    this.marks = marks
+    if (this.graph) this.draw('')
   }
 
   /** Highlights `id`'s upstream and downstream chains and dims the rest. */
@@ -109,7 +122,8 @@ export class GraphView {
     layout(laidOut)
     const { width = 0, height = 0 } = laidOut.graph()
     this.bounds = { width, height }
-    const focusNode = graph.focus ? laidOut.node(graph.focus) : null
+    const centerId = graph.focus ?? (this.centerOn && graph.nodes.some((node) => node.id === this.centerOn) ? this.centerOn : null)
+    const focusNode = centerId ? laidOut.node(centerId) : null
     this.focusCenter = focusNode ? { x: focusNode.x, y: focusNode.y } : null
 
     for (const [parent, child] of graph.edges) {
@@ -124,26 +138,35 @@ export class GraphView {
   }
 
   private drawNode(node: GraphNodeView, left: number, top: number, isFocus: boolean, fontFamily: string): void {
-    const group = svgEl(
-      'g',
-      { class: isFocus ? 'node focus' : 'node', transform: `translate(${left},${top})`, 'data-id': node.id },
-      this.nodesLayer
-    )
-    svgEl('title', {}, group).textContent = `${node.name}\n${node.relation ?? node.id}`
+    const change = this.marks[node.id]
+    const classes = ['node', isFocus ? 'focus' : '', change ? `changed changed-${change}` : ''].filter(Boolean).join(' ')
+    const group = svgEl('g', { class: classes, transform: `translate(${left},${top})`, 'data-id': node.id }, this.nodesLayer)
+    svgEl('title', {}, group).textContent =
+      `${node.name}\n${node.relation ?? node.id}${change ? `\nChanged in this branch: ${CHANGE_LABELS[change]}` : ''}`
     svgEl('rect', { class: 'box', width: NODE_WIDTH, height: NODE_HEIGHT, rx: 6 }, group)
+    if (change) {
+      svgEl('rect', { class: 'change-tag', x: NODE_WIDTH - 22, y: 4, width: 16, height: 14, rx: 3 }, group)
+      svgEl('text', { class: 'change-letter', x: NODE_WIDTH - 14, y: 11 }, group).textContent = CHANGE_LETTERS[change]
+    }
     svgEl('rect', { x: 1, y: 1, width: 5, height: NODE_HEIGHT - 2, rx: 2, fill: typeColor(node.type) }, group)
-    svgEl('text', { class: 'name', x: 14, y: 19 }, group).textContent = this.clip(node.name, `600 12px ${fontFamily}`)
+    // A changed node's name stops short of its tag.
+    svgEl('text', { class: 'name', x: 14, y: 19 }, group).textContent = this.clip(
+      node.name,
+      `600 12px ${fontFamily}`,
+      change ? NODE_WIDTH - 50 : NODE_WIDTH - 26
+    )
     const meta = [node.type, node.materialized].filter(Boolean).join(' · ')
     svgEl('text', { class: 'meta', x: 14, y: 35 }, group).textContent = this.clip(meta, `10.5px ${fontFamily}`)
 
     // Horizontal: parents' badge on the left edge, children's on the right. Vertical: on the top
-    // and bottom edges, off-centre so it does not sit on the arrows that meet there.
+    // and bottom edges, left of centre: off the arrows that meet in the middle and clear of the
+    // change tag in the top-right corner.
     const badge = (count: number, direction: Direction) => {
       if (count === 0) return
       const [cx, cy] =
         this.orientation === 'LR'
           ? [direction === 'up' ? 0 : NODE_WIDTH, NODE_HEIGHT / 2]
-          : [NODE_WIDTH - 24, direction === 'up' ? 0 : NODE_HEIGHT]
+          : [30, direction === 'up' ? 0 : NODE_HEIGHT]
       const element = svgEl('g', { class: 'badge', 'data-direction': direction }, group)
       svgEl('title', {}, element).textContent = `Show ${count} more ${direction === 'up' ? 'parents' : 'children'}`
       svgEl('circle', { cx, cy, r: BADGE_RADIUS }, element)
@@ -153,9 +176,8 @@ export class GraphView {
     badge(node.hiddenChildren, 'down')
   }
 
-  /** `text` cut with an ellipsis to fit inside a node. */
-  private clip(text: string, font: string): string {
-    const maxWidth = NODE_WIDTH - 26
+  /** `text` cut with an ellipsis to fit `maxWidth` pixels of a node. */
+  private clip(text: string, font: string, maxWidth = NODE_WIDTH - 26): string {
     this.measure.font = font
     if (this.measure.measureText(text).width <= maxWidth) return text
     let low = 0

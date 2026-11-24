@@ -20,8 +20,10 @@ import {
   type RawCatalog,
   type RawManifest
 } from './graph'
+import { buildCommand, mapChanges } from './changes'
+import { branchDiff, GitError } from './git'
 import { findProjectDir, manifestPathFor } from './project'
-import type { DbtEngine, ProjectProblem, ProjectStatus } from './protocol'
+import type { BranchChanges, DbtEngine, ProjectProblem, ProjectStatus } from './protocol'
 import {
   dbtCommand,
   dbtEnvironment,
@@ -125,6 +127,29 @@ export default function activate(orca: OrcaWorkerApi): void {
       return { graph: selectionGraph(graph, ids, expand ?? [], GRAPH_NODE_LIMIT), count: ids.size }
     } catch (error) {
       if (error instanceof SelectorError) return { graph: null, count: 0, error: error.message }
+      throw error
+    }
+  })
+
+  orca.panels.handle('lineage.changes', async (): Promise<BranchChanges> => {
+    try {
+      return await branchChanges(orca)
+    } catch (error) {
+      if (error instanceof GitError || error instanceof ProjectError) return { ok: false, message: error.message }
+      throw error
+    }
+  })
+
+  orca.panels.handle('lineage.changesGraph', async ({ expand }) => {
+    try {
+      const changes = await branchChanges(orca)
+      if (!changes.ok) return { graph: null, error: changes.message }
+      const { graph } = await loadProject(orca)
+      // Changed nodes first, so a graph cut at the limit still shows every change.
+      const ids = new Set([...changes.changed.map((node) => node.id), ...changes.impacted.map((node) => node.id)])
+      return { graph: ids.size > 0 ? selectionGraph(graph, ids, expand ?? [], GRAPH_NODE_LIMIT) : null }
+    } catch (error) {
+      if (error instanceof GitError || error instanceof ProjectError) return { graph: null, error: error.message }
       throw error
     }
   })
@@ -287,6 +312,31 @@ async function locateProject(orca: OrcaWorkerApi): Promise<Location> {
 async function configuredCommand(orca: OrcaWorkerApi): Promise<string> {
   const configured = await orca.settings.get('dbtCommand')
   return typeof configured === 'string' ? configured.trim() : ''
+}
+
+/** The branch's changes mapped onto the manifest, with what they reach downstream. */
+async function branchChanges(orca: OrcaWorkerApi): Promise<BranchChanges> {
+  const { projectDir, manifestPath, graph } = await loadProject(orca)
+  const configured = await orca.settings.get('baseBranch')
+  const diff = await branchDiff(projectDir, typeof configured === 'string' ? configured.trim() : '')
+  const mapped = mapChanges(graph, diff.files)
+  // An edited file newer than the manifest may hold models or refs the manifest lacks yet.
+  const manifestTime = (await stat(manifestPath)).mtimeMs
+  const times = await Promise.all(
+    diff.files
+      .filter((file) => file.status !== 'D')
+      .slice(0, 500)
+      .map((file) => stat(join(projectDir, file.path)).then((info) => info.mtimeMs, () => 0))
+  )
+  return {
+    ok: true,
+    head: diff.head,
+    base: diff.base,
+    mergeBase: diff.mergeBase,
+    ...mapped,
+    manifestStale: times.some((time) => time > manifestTime),
+    command: buildCommand(graph, mapped.changed)
+  }
 }
 
 async function loadProject(orca: OrcaWorkerApi): Promise<Project> {

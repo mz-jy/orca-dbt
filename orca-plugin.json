@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "dbt",
   "name": "dbt for Orca",
-  "version": "0.3.2",
-  "description": "A data catalog for the dbt project in your workspace: explore models by folder, tag, schema or owner, read their docs, columns and tests, select with dbt selectors, see visual lineage, and preview data through the project's own dbt (v1 dbt-core or v2 Fusion; Snowflake, ClickHouse, Postgres and any other adapter).",
+  "version": "0.4.0",
+  "description": "A data catalog for the dbt project in your workspace: explore models by folder, tag, schema or owner, read their docs, columns and tests, select with dbt selectors, see visual lineage, check a pull request's impact (changed models and everything downstream), and preview data through the project's own dbt (v1 dbt-core or v2 Fusion; Snowflake, ClickHouse, Postgres and any other adapter).",
   "author": {
     "name": "mz-jy",
     "url": "https://github.com/mz-jy"
@@ -43,6 +43,14 @@
         "type": "string",
         "default": "",
         "placeholder": "uv run dbt"
+      },
+      {
+        "key": "baseBranch",
+        "title": "Base branch for Changes",
+        "description": "What Changes compares your branch with, usually the branch your pull request merges into. Leave empty for origin's default branch (else origin/main, origin/master, main or master).",
+        "type": "string",
+        "default": "",
+        "placeholder": "origin/main"
       }
     ]
   },

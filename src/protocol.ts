@@ -101,6 +101,36 @@ export type Selection = { count: number; nodes: NodeSummary[]; error?: string }
 /** The dbt a query or parse runs: v1 is dbt-core, v2 is dbt Fusion. */
 export type DbtEngine = { command: string; version: string | null; flavor: 'core' | 'fusion' | 'unknown' }
 
+/**
+ * How the branch changed a node: its own file is new (`added`) or edited (`modified`), the YAML
+ * that documents or configures it changed (`yaml`), or a macro it calls changed (`macro`).
+ */
+export type ChangeKind = 'added' | 'modified' | 'yaml' | 'macro'
+
+export type ChangedNode = NodeSummary & { change: ChangeKind; files: string[] }
+
+/** What the branch changed since it left its base, and what that reaches downstream. */
+export type BranchChanges =
+  | {
+      ok: true
+      /** The current branch, the base it is compared with, and their merge base (short sha). */
+      head: string
+      base: string
+      mergeBase: string
+      changed: ChangedNode[]
+      /** Downstream of the changed nodes, not changed themselves. */
+      impacted: NodeSummary[]
+      /** Deleted model, seed or snapshot files. */
+      removed: string[]
+      /** Changed files in the project that map to no node (dbt_project.yml, packages.yml, …). */
+      unmapped: string[]
+      /** A changed file is newer than the manifest: `dbt parse` would show more. */
+      manifestStale: boolean
+      /** `dbt build --select …` for the changed nodes and everything downstream. */
+      command: string | null
+    }
+  | { ok: false; message: string }
+
 declare module 'orca' {
   interface PluginRequests {
     /** Finds the focused workspace's dbt project and reads its manifest. */
@@ -144,6 +174,13 @@ declare module 'orca' {
     'project.parse': { output: { jobId: string } }
     /** Which dbt queries run with, and whether it is dbt-core (v1) or Fusion (v2). */
     'query.engine': { output: DbtEngine }
+    /** The branch's changes against its base (committed, uncommitted and untracked). */
+    'lineage.changes': { output: BranchChanges }
+    /** The changed nodes and everything downstream of them, plus `expand`. */
+    'lineage.changesGraph': {
+      input: { expand?: { id: string; direction: Direction }[] }
+      output: { graph: LineageGraph | null; error?: string }
+    }
   }
   interface PluginPanelEvents {
     'query.done': QueryResult

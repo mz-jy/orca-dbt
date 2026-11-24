@@ -15,6 +15,11 @@ One page, **dbt**, with three parts that move together:
   your `selectors.yml`. Picking a node draws its lineage.
 - **Model**: description (Markdown), tags, owner, meta, columns with their types and tests,
   neighbours, and **Data**: preview rows or run SQL (`{{ ref() }}` works) on the warehouse.
+- **± Changes**: what your branch changed since its base (committed, uncommitted and untracked),
+  drawn with everything downstream of it, so a pull request's impact is one click away. Changed
+  nodes are tagged in every graph: **A** new file, **M** SQL changed, **Y** YAML changed, **ƒ** a
+  macro it uses changed. The list shows the exposures (dashboards) affected and a
+  `dbt build --select …` that builds and tests exactly the changes and what they feed.
 
 In a narrow sidebar the graph sits above a Catalog/Model sheet you can resize by dragging the
 bar between them; widen the panel past 900 px and the three sit side by side. The page follows
@@ -64,6 +69,13 @@ What it asks for, and why:
   - runs in the project folder, where dbt looks for `profiles.yml` before `~/.dbt`.
 
   Snowflake with `authenticator: externalbrowser` opens your browser to sign in the first time.
+- **Changes** compare the branch with its merge base on `origin`'s default branch (else
+  `origin/main`, `origin/master`, `main`, `master`); set **Base branch for Changes** when your
+  pull requests merge elsewhere. A `.sql`/`.py`/`.csv` maps to its model, seed or snapshot, a
+  `.yml` to every node it documents or configures (including sources and exposures), and a
+  macro to every model that calls it, directly or through other macros. Files no node comes
+  from (`dbt_project.yml`, singular tests, …) are listed apart. When a changed file is newer
+  than the manifest, the panel offers **Run dbt parse** so new models appear.
 
 ## dbt v1 and v2
 
@@ -97,9 +109,11 @@ orca plugin dev watch .    # loads this folder into Orca, streams logs, reloads 
 | `src/graph.ts`               | manifest and catalog.json into a graph and catalog (pure)          |
 | `src/selector.ts`            | dbt's selector syntax and YAML selectors (pure)                    |
 | `src/runner.ts`              | finding and running the project's dbt, reading its JSON logs       |
+| `src/git.ts`                 | the branch's changed files since its merge base                    |
+| `src/changes.ts`             | changed files onto nodes, what they reach, the build command (pure) |
 | `src/protocol.ts`            | the requests and events between the page and the worker            |
 | `ui/index.html`, `ui/app.ts` | the page: layout, state, and what each click does                  |
 | `ui/graph-view.ts`           | the lineage graph: dagre's layout drawn as SVG, pan, zoom          |
-| `ui/catalog-view.ts`         | the catalog tree and result lists                                  |
+| `ui/catalog-view.ts`         | the catalog tree, result lists and the branch's changes            |
 | `ui/model-view.ts`           | a node's docs, columns, neighbours and data                         |
 | `vendor/`                    | `@dagrejs/dagre` 3.1.3 and `marked` 18.3 (MIT), vendored: plugin frames have no network |

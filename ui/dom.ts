@@ -1,6 +1,21 @@
 // Small DOM helpers the page's views share.
+import type { ChangeKind } from '../src/protocol'
 
 export const SVG_NS = 'http://www.w3.org/2000/svg'
+
+/** How the page labels what a branch did to a node, in the graph, the lists and the model. */
+export const CHANGE_LETTERS: Record<ChangeKind, string> = { added: 'A', modified: 'M', yaml: 'Y', macro: 'ƒ' }
+export const CHANGE_LABELS: Record<ChangeKind, string> = {
+  added: 'new file',
+  modified: 'SQL changed',
+  yaml: 'YAML changed',
+  macro: 'a macro it uses changed'
+}
+
+/** A small A/M/Y/ƒ tag, styled by kind. */
+export function changeTag(change: ChangeKind): HTMLSpanElement {
+  return el('span', { class: `change-tag changed-${change}`, title: CHANGE_LABELS[change] }, CHANGE_LETTERS[change])
+}
 
 const TYPE_COLORS: Record<string, string> = {
   model: '#3b82f6',

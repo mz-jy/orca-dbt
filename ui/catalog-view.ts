@@ -1,13 +1,17 @@
 // The catalog explorer: every node grouped by folder, tag, schema, type, package or owner in a
-// lazily loaded tree, or a flat list of search or selector results.
-import type { CatalogLevel, GroupBy, NodeSummary } from '../src/protocol'
-import { el, fill, swatch } from './dom'
+// lazily loaded tree, a flat list of search or selector results, or the branch's changes.
+import type { BranchChanges, CatalogLevel, ChangedNode, GroupBy, NodeSummary } from '../src/protocol'
+import { CHANGE_LABELS, CHANGE_LETTERS, changeTag, el, fill, swatch } from './dom'
 
 export type CatalogViewEvents = {
-  /** A node was chosen. */
+  /** A node was chosen: draw its lineage. */
   open(id: string): void
+  /** A node in the Changes list was clicked: show it, keep the changes graph. */
+  show(id: string): void
   loadLevel(by: GroupBy, path: string): Promise<CatalogLevel>
   groupBy(by: GroupBy): void
+  refreshChanges(): void
+  parse(): void
   error(cause: unknown): void
 }
 
@@ -52,6 +56,51 @@ export class CatalogView {
   /** A message instead of the catalog: no project, a bad selector, … */
   showMessage(text: string, tone: 'muted' | 'warning', action?: HTMLElement): void {
     fill(this.root, el('div', { class: `message ${tone}` }, el('p', {}, text), action ?? null))
+  }
+
+  /** The branch's changes, what they reach downstream, and how to build them. */
+  showChanges(changes: Extract<BranchChanges, { ok: true }>): void {
+    const exposures = changes.impacted.filter((node) => node.type === 'exposure')
+    const downstream = changes.impacted.filter((node) => node.type !== 'exposure')
+    const refresh = el('button', { type: 'button', title: 'Read the branch again' }, '↻')
+    refresh.addEventListener('click', () => this.events.refreshChanges())
+    const parse = el('button', { type: 'button', class: 'primary' }, 'Run dbt parse')
+    parse.addEventListener('click', () => this.events.parse())
+    const rows = (nodes: readonly (NodeSummary | ChangedNode)[]) =>
+      el('ul', { class: 'tree flat' }, ...nodes.map((node) => el('li', {}, this.nodeRow(node, 'show'))))
+    const files = (paths: readonly string[]) => el('ul', { class: 'files' }, ...paths.map((path) => el('li', {}, el('code', {}, path))))
+
+    fill(
+      this.root,
+      el(
+        'div',
+        { class: 'explorer-head' },
+        el('strong', {}, `${changes.head} vs ${changes.base}`),
+        el('span', { class: 'muted small', title: 'Merge base' }, `@${changes.mergeBase}`),
+        refresh
+      ),
+      changes.manifestStale
+        ? el('div', { class: 'message warning' }, el('p', {}, 'Files changed since the manifest was written: parse to see new models and refs.'), parse)
+        : null,
+      el(
+        'p',
+        { class: 'muted small legend' },
+        ...(Object.keys(CHANGE_LETTERS) as (keyof typeof CHANGE_LETTERS)[]).flatMap((kind) => [changeTag(kind), ` ${CHANGE_LABELS[kind]}  `])
+      ),
+      el('h3', {}, `Changed (${changes.changed.length})`),
+      changes.changed.length > 0 ? rows(changes.changed) : el('p', { class: 'muted' }, 'No dbt node changed in this branch.'),
+      exposures.length > 0 ? el('h3', {}, `Exposures affected (${exposures.length})`) : null,
+      exposures.length > 0 ? rows(exposures) : null,
+      el('h3', {}, `Downstream (${downstream.length})`),
+      downstream.length > 0 ? rows(downstream) : el('p', { class: 'muted' }, 'Nothing downstream.'),
+      changes.removed.length > 0 ? el('h3', {}, `Deleted (${changes.removed.length})`) : null,
+      changes.removed.length > 0 ? files(changes.removed) : null,
+      changes.unmapped.length > 0 ? el('h3', {}, `Other changed files (${changes.unmapped.length})`) : null,
+      changes.unmapped.length > 0 ? files(changes.unmapped) : null,
+      changes.command ? el('h3', {}, 'Build and test the impact') : null,
+      changes.command ? el('pre', { class: 'command' }, changes.command) : null
+    )
+    this.mark()
   }
 
   /** Marks the rows of the node the page shows. */
@@ -99,15 +148,23 @@ export class CatalogView {
     return el('li', {}, row, children)
   }
 
-  private nodeRow(node: NodeSummary): HTMLButtonElement {
+  private nodeRow(node: NodeSummary | ChangedNode, action: 'open' | 'show' = 'open'): HTMLButtonElement {
+    const changed = 'change' in node
     const row = el(
       'button',
-      { class: 'row node', type: 'button', 'data-id': node.id, title: `${node.id}\n${node.parents} upstream · ${node.children} downstream` },
+      {
+        class: 'row node',
+        type: 'button',
+        'data-id': node.id,
+        title: `${node.id}\n${node.parents} upstream · ${node.children} downstream${changed ? `\n${node.files.join('\n')}` : ''}`
+      },
       swatch(node.type),
       el('span', { class: 'label' }, node.name),
+      changed ? changeTag(node.change) : null,
       el('span', { class: 'count' }, node.type)
     )
-    row.addEventListener('click', () => this.events.open(node.id))
+    row.addEventListener('click', () => (action === 'open' ? this.events.open(node.id) : this.events.show(node.id)))
+    if (action === 'show') row.addEventListener('dblclick', () => this.events.open(node.id))
     return row
   }
 }
