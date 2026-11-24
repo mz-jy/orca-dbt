@@ -754,3 +754,134 @@ pre.error {
   color: var(--orca-destructive);
   background: color-mix(in srgb, var(--orca-destructive) 8%, transparent);
 }
+
+/* ---------- Environment dialog ---------- */
+
+.env-dialog {
+  width: min(640px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  padding: 12px;
+  border: 1px solid var(--orca-border);
+  border-radius: 8px;
+  background: var(--orca-popover);
+  color: var(--orca-popover-foreground);
+}
+
+.env-dialog::backdrop {
+  background: rgb(0 0 0 / 0.3);
+}
+
+.env-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.env-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.env-head .close {
+  border: none;
+  background: transparent;
+  font-size: 16px;
+}
+
+.env-dialog h3 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+}
+
+.env-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+
+.env-source label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.env-source select {
+  max-width: 100%;
+}
+
+.env-required {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.env-required li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.pill.ok {
+  background: color-mix(in srgb, #16a34a 18%, transparent);
+}
+
+.pill.missing {
+  background: color-mix(in srgb, var(--orca-destructive) 18%, transparent);
+  color: var(--orca-destructive);
+}
+
+.env-table td {
+  white-space: nowrap;
+}
+
+.env-table td.value {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions-cell {
+  text-align: right;
+}
+
+.actions-cell button {
+  padding: 1px 6px;
+  margin-left: 2px;
+}
+
+button.danger {
+  background: var(--orca-destructive);
+  color: var(--orca-destructive-foreground);
+  border-color: transparent;
+}
+
+.env-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.env-form-row input[type='text'],
+.env-form-row input[type='password'] {
+  flex: 1 1 140px;
+  min-width: 0;
+  font-family: var(--orca-font-mono, ui-monospace, monospace);
+}
+
+.env-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.missing-vars {
+  color: var(--orca-destructive);
+}

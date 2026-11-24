@@ -6,6 +6,7 @@ import type { BranchChanges, Direction, GroupBy, LineageGraph, ProjectStatus } f
 import { CatalogView } from './catalog-view'
 import { byId, el, errorMessage } from './dom'
 import { GraphView, type Orientation } from './graph-view'
+import { EnvView } from './env-view'
 import { ModelView } from './model-view'
 
 const DEPTHS: readonly (readonly [number, string])[] = [
@@ -88,8 +89,11 @@ const modelView = new ModelView(detailsElement, {
   focus: (id) => void focusNode(id),
   select: (id) => void showNode(id),
   openFile: (id) => void openFile(id),
-  selectTag: (tag) => void applySelector(`tag:${tag}`)
+  selectTag: (tag) => void applySelector(`tag:${tag}`),
+  openEnv: (key) => void envView.open(key)
 })
+
+const envView = new EnvView(byId<HTMLDialogElement>('env-dialog'), (env) => modelView.setEnv(env))
 
 // ---------- Loading ----------
 
@@ -114,6 +118,7 @@ async function load(): Promise<void> {
     }
     void orca.plugin.request('catalog.selectors').then(renderYamlSelectors, report)
     void orca.plugin.request('query.engine').then((engine) => modelView.setEngine(engine), report)
+    void orca.plugin.request('env.read').then((env) => modelView.setEnv(env), report)
     // The branch's changes first: every graph marks them.
     await loadChanges()
     await Promise.all([renderCatalog(), loadGraph(), state.focus ? showNode(state.focus, { openSheet: false }) : modelView.show(null, false)])

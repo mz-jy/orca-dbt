@@ -131,6 +131,24 @@ export type BranchChanges =
     }
   | { ok: false; message: string }
 
+/** The environment queries run with: where it comes from, what it sets, what the profile needs. */
+export type EnvState = {
+  /** The "Env file" setting, workspace-relative; '' reads every .env from the root down. */
+  configured: string
+  /** The files read, in load order (a later one wins); paths are workspace-relative. */
+  files: string[]
+  /** Where Save writes. */
+  target: string
+  /** .env-like files between the workspace root and the project, to choose from. */
+  candidates: string[]
+  vars: { key: string; value: string; file: string }[]
+  /** The dbt profile the project uses and the profiles.yml it is read from. */
+  profile: string
+  profilesFile: string | null
+  /** Variables the profile and dbt_project.yml read with env_var(), and who sets them. */
+  required: { key: string; hasDefault: boolean; setBy: 'file' | 'orca' | null }[]
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** Finds the focused workspace's dbt project and reads its manifest. */
@@ -181,6 +199,14 @@ declare module 'orca' {
       input: { expand?: { id: string; direction: Direction }[] }
       output: { graph: LineageGraph | null; error?: string }
     }
+    /** The query environment. */
+    'env.read': { output: EnvState }
+    /** Sets a variable in the env file Save writes (creating the file if needed). */
+    'env.set': { input: { key: string; value: string }; output: EnvState }
+    /** Removes a variable from the env files it is read from. */
+    'env.delete': { input: { key: string }; output: EnvState }
+    /** Reads variables from `file` (workspace-relative or absolute), or every .env with ''. */
+    'env.choose': { input: { file: string }; output: EnvState }
   }
   interface PluginPanelEvents {
     'query.done': QueryResult

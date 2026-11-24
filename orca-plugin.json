@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "dbt",
   "name": "dbt for Orca",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A data catalog for the dbt project in your workspace: explore models by folder, tag, schema or owner, read their docs, columns and tests, select with dbt selectors, see visual lineage, check a pull request's impact (changed models and everything downstream), and preview data through the project's own dbt (v1 dbt-core or v2 Fusion; Snowflake, ClickHouse, Postgres and any other adapter).",
   "author": {
     "name": "mz-jy",
@@ -51,6 +51,14 @@
         "type": "string",
         "default": "",
         "placeholder": "origin/main"
+      },
+      {
+        "key": "envFile",
+        "title": "Env file",
+        "description": "The file queries read environment variables from, relative to the workspace root (or absolute). Leave empty to read every .env from the workspace root down to the dbt project. The panel's Environment dialog edits this file.",
+        "type": "string",
+        "default": "",
+        "placeholder": ".env"
       }
     ]
   },

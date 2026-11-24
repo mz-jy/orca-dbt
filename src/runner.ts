@@ -1,11 +1,12 @@
 // Runs the project's own dbt the way its tooling does, so queries reach the warehouse with the
 // profile's own connection and credentials (Snowflake SSO, ClickHouse, Postgres, DuckDB, ...):
-// the dbt in the project's virtualenv, the .env files `just`/direnv load, the project folder as
-// the working directory (where dbt looks for profiles.yml before ~/.dbt).
+// the dbt in the project's virtualenv, with the environment src/env.ts builds, in the project
+// folder (where dbt looks for profiles.yml before ~/.dbt).
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, join } from 'node:path'
+import { foldersDownTo } from './project'
 import type { DbtEngine, QueryCell } from './protocol'
 
 export type DbtResult = { code: number | null; lines: string[]; stderr: string }
@@ -16,16 +17,6 @@ const COMMON_BIN_DIRS = [join(homedir(), '.local', 'bin'), '/opt/homebrew/bin', 
 /** Rows past this many bytes of JSON are dropped: a panel post carries at most 256 KiB. */
 const MAX_RESULT_BYTES = 200_000
 const MAX_CELL_LENGTH = 500
-
-/** The workspace root, the folders below it and the project folder itself, root first. */
-function foldersDownTo(root: string, projectDir: string): string[] {
-  const folders = [projectDir]
-  for (let dir = projectDir; dir !== root && dir.startsWith(root) && dirname(dir) !== dir; ) {
-    dir = dirname(dir)
-    folders.unshift(dir)
-  }
-  return folders
-}
 
 /**
  * The command that runs dbt: `configured` when the person set one (split on spaces, such as
@@ -53,42 +44,6 @@ export function parseDbtVersion(output: string): Pick<DbtEngine, 'version' | 'fl
   const core = /installed(?: version)?:\s*(\d\S*)/.exec(output)
   if (core) return { flavor: 'core', version: core[1] }
   return { flavor: 'unknown', version: null }
-}
-
-/** KEY=value lines as dotenv reads them: comments, `export`, quotes, inline `#` comments. */
-export function parseDotenv(text: string): Record<string, string> {
-  const vars: Record<string, string> = {}
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim().replace(/^export\s+/, '')
-    const match = /^([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.*)$/.exec(line)
-    if (!match) continue
-    let value = match[2]
-    const quote = value[0]
-    if ((quote === '"' || quote === "'") && value.lastIndexOf(quote) > 0) {
-      value = value.slice(1, value.lastIndexOf(quote))
-      if (quote === '"') value = value.replace(/\\n/g, '\n').replace(/\\"/g, '"')
-    } else {
-      value = value.replace(/\s+#.*$/, '').trim()
-    }
-    vars[match[1]] = value
-  }
-  return vars
-}
-
-/**
- * The environment dbt runs with: every `.env` from the workspace root down to the project (the
- * deeper file wins), under the worker's own environment, which wins as dotenv does.
- */
-export function dbtEnvironment(root: string, projectDir: string): Record<string, string> {
-  const fromFiles: Record<string, string> = {}
-  for (const dir of foldersDownTo(root, projectDir)) {
-    const file = join(dir, '.env')
-    if (existsSync(file)) Object.assign(fromFiles, parseDotenv(readFileSync(file, 'utf8')))
-  }
-  const own = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
-  )
-  return { ...fromFiles, ...own, DBT_SEND_ANONYMOUS_USAGE_STATS: own.DBT_SEND_ANONYMOUS_USAGE_STATS ?? 'false' }
 }
 
 export function runDbt(

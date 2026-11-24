@@ -1,7 +1,7 @@
 // The model sheet: a node's docs, tags, owner, columns and tests, its direct neighbours, and its
 // data, queried through the project's own dbt (the worker runs `dbt show`).
 import { previewSql } from '../src/graph'
-import type { ChangedNode, DbtEngine, NodeDetail, NodeFocus, NodeSummary, QueryResult } from '../src/protocol'
+import type { ChangedNode, DbtEngine, EnvState, NodeDetail, NodeFocus, NodeSummary, QueryResult } from '../src/protocol'
 import { CHANGE_LABELS, changeTag, el, errorMessage, fill, swatch } from './dom'
 import { renderMarkdown } from './markdown'
 
@@ -12,6 +12,8 @@ export type ModelViewEvents = {
   select(id: string): void
   openFile(id: string): void
   selectTag(tag: string): void
+  /** Open the Environment dialog, ready to add `key` when given. */
+  openEnv(key?: string): void
 }
 
 const ROW_LIMITS = ['10', '20', '50', '100', '500']
@@ -28,6 +30,8 @@ export class ModelView {
   private sqlDraft = ''
   private rowLimit = localStorage.getItem('rowLimit') ?? '20'
   private dataSection: HTMLElement | null = null
+  /** The variables queries run with, for the line under the engine. */
+  private env: EnvState | null = null
 
   constructor(
     private readonly root: HTMLElement,
@@ -50,6 +54,11 @@ export class ModelView {
     if (isGraphFocus === this.isGraphFocus || !this.shown) return
     this.isGraphFocus = isGraphFocus
     this.render()
+  }
+
+  setEnv(env: EnvState): void {
+    this.env = env
+    this.renderData()
   }
 
   setEngine(engine: DbtEngine): void {
@@ -224,14 +233,35 @@ export class ModelView {
     const preview = previewSql(node.id, node.type, node.name, node.packageName)
     const result = this.result
 
+    const env = this.env
+    const missing = env ? env.required.filter((entry) => !entry.setBy && !entry.hasDefault).map((entry) => entry.key) : []
+    const error = result && !result.ok ? result.error : ''
+    // dbt-core: "Env var required but not provided: 'X'"; otherwise a quoted name after "env var".
+    const missingVar = (
+      /Env var required but not provided: '([^']+)'/.exec(error) ??
+      /env(?:ironment)?[ _-]?var(?:iable)?[^'"`\n]*['"`]([A-Za-z_][A-Za-z0-9_]*)['"`]/i.exec(error)
+    )?.[1]
+
     fill(
       container,
       el(
         'p',
         { class: 'muted small' },
         engine
-          ? `Runs ${flavor}${engine.version ? ` ${engine.version}` : ''} from ${engine.command}, with the project's profile and .env.`
-          : "Runs the project's own dbt with its profile and .env."
+          ? `Runs ${flavor}${engine.version ? ` ${engine.version}` : ''} from ${engine.command}, with the project's profile.`
+          : "Runs the project's own dbt with its profile."
+      ),
+      el(
+        'div',
+        { class: 'env-line' },
+        el(
+          'span',
+          { class: missing.length > 0 ? 'small missing-vars' : 'muted small' },
+          env
+            ? `Variables from ${env.files.length > 0 ? env.files.join(', ') : 'no env file yet'} · ${env.vars.length} set${missing.length > 0 ? ` · missing ${missing.join(', ')}` : ''}`
+            : 'Variables from .env'
+        ),
+        button('Environment…', () => this.events.openEnv(), missing.length > 0 ? 'primary' : '')
       ),
       el(
         'div',
@@ -244,7 +274,8 @@ export class ModelView {
       sql,
       running ? el('p', { class: 'muted running' }, 'Querying the warehouse… (an SSO sign-in may open in your browser)') : null,
       this.failure ? el('pre', { class: 'error' }, this.failure) : null,
-      result && !result.ok ? el('pre', { class: 'error' }, result.error) : null,
+      error ? el('pre', { class: 'error' }, error) : null,
+      missingVar ? button(`Set ${missingVar}…`, () => this.events.openEnv(missingVar), 'primary') : null,
       result && result.ok ? this.resultTable(result) : null
     )
   }

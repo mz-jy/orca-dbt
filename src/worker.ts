@@ -3,7 +3,7 @@
 // own dbt for data previews. Orca transpiles this file when it loads: no build step.
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
@@ -21,18 +21,21 @@ import {
   type RawManifest
 } from './graph'
 import { buildCommand, mapChanges } from './changes'
+import {
+  dbtEnvironment,
+  deleteDotenvVar,
+  displayPath,
+  envCandidates,
+  envSources,
+  isEnvKey,
+  readEnvFiles,
+  requiredEnvVars,
+  setDotenvVar
+} from './env'
 import { branchDiff, GitError } from './git'
 import { findProjectDir, manifestPathFor } from './project'
-import type { BranchChanges, DbtEngine, ProjectProblem, ProjectStatus } from './protocol'
-import {
-  dbtCommand,
-  dbtEnvironment,
-  dbtError,
-  parseDbtVersion,
-  runDbt,
-  showRows,
-  type DbtResult
-} from './runner'
+import type { BranchChanges, DbtEngine, EnvState, ProjectProblem, ProjectStatus } from './protocol'
+import { dbtCommand, dbtError, parseDbtVersion, runDbt, showRows, type DbtResult } from './runner'
 import { select, SelectorError, yamlSelectors } from './selector'
 
 type Workspace = { id: string; name: string; path: string; project?: string | null; hostId: string | null }
@@ -154,15 +157,45 @@ export default function activate(orca: OrcaWorkerApi): void {
     }
   })
 
+  orca.panels.handle('env.read', async () => envState(orca))
+
+  orca.panels.handle('env.set', async ({ key, value }) => {
+    if (!isEnvKey(key)) {
+      throw Object.assign(new Error(`"${key}" is not a variable name: letters, digits and _, not starting with a digit.`), {
+        code: 'invalid_params'
+      })
+    }
+    const { workspace, projectDir } = await locateProject(orca)
+    const { target } = envSources(workspace.path, projectDir, await stringSetting(orca, 'envFile'))
+    const text = existsSync(target) ? await readFile(target, 'utf8') : ''
+    await writeFile(target, setDotenvVar(text, key, value))
+    return envState(orca)
+  })
+
+  orca.panels.handle('env.delete', async ({ key }) => {
+    const { workspace, projectDir } = await locateProject(orca)
+    for (const file of envSources(workspace.path, projectDir, await stringSetting(orca, 'envFile')).files) {
+      const text = await readFile(file, 'utf8')
+      const without = deleteDotenvVar(text, key)
+      if (without !== text) await writeFile(file, without)
+    }
+    return envState(orca)
+  })
+
+  orca.panels.handle('env.choose', async ({ file }) => {
+    await orca.settings.set('envFile', file.trim())
+    return envState(orca)
+  })
+
   orca.panels.handle('query.engine', async () => {
     const { workspace, projectDir } = await locateProject(orca)
-    const command = dbtCommand(workspace.path, projectDir, await configuredCommand(orca))
+    const command = dbtCommand(workspace.path, projectDir, await stringSetting(orca, 'dbtCommand'))
     const key = command.join(' ')
     let engine = engines.get(key)
     if (!engine) {
       engine = runDbt(command, ['--version'], {
         cwd: projectDir,
-        env: dbtEnvironment(workspace.path, projectDir),
+        env: dbtEnvironment(workspace.path, projectDir, await stringSetting(orca, 'envFile')),
         signal: AbortSignal.timeout(60_000)
       }).then(
         (run) => ({ command: key, ...parseDbtVersion([...run.lines, run.stderr].join('\n')) }),
@@ -252,11 +285,11 @@ function startJob(
   void (async () => {
     let outcome: JobOutcome
     try {
-      const command = dbtCommand(workspace.path, projectDir, await configuredCommand(orca))
+      const command = dbtCommand(workspace.path, projectDir, await stringSetting(orca, 'dbtCommand'))
       orca.log(`job ${jobId}: ${command.join(' ')} ${args[0]} in ${projectDir}`)
       const run = await runDbt(command, [...args, '--log-format', 'json'], {
         cwd: projectDir,
-        env: dbtEnvironment(workspace.path, projectDir),
+        env: dbtEnvironment(workspace.path, projectDir, await stringSetting(orca, 'envFile')),
         signal: controller.signal
       })
       outcome = { jobId, ms: Date.now() - started, run }
@@ -295,8 +328,8 @@ async function locateProject(orca: OrcaWorkerApi): Promise<Location> {
     throw new ProjectError('remote', 'dbt lineage reads files on this computer; this workspace is on another host.')
   }
 
-  const configured = await orca.settings.get('projectDir')
-  const projectDir = findProjectDir(workspace.path, typeof configured === 'string' ? configured.trim() : '')
+  const configured = await stringSetting(orca, 'projectDir')
+  const projectDir = findProjectDir(workspace.path, configured)
   if (!projectDir) {
     throw new ProjectError(
       'no_project',
@@ -308,17 +341,40 @@ async function locateProject(orca: OrcaWorkerApi): Promise<Location> {
   return { workspace, projectDir, manifestPath: manifestPathFor(projectDir) }
 }
 
-/** The person's "dbt command" setting, '' when they left it to auto-detection. */
-async function configuredCommand(orca: OrcaWorkerApi): Promise<string> {
-  const configured = await orca.settings.get('dbtCommand')
-  return typeof configured === 'string' ? configured.trim() : ''
+/** A string setting the person may have left empty (auto-detection): '' then. */
+async function stringSetting(orca: OrcaWorkerApi, key: 'projectDir' | 'dbtCommand' | 'baseBranch' | 'envFile'): Promise<string> {
+  const value = await orca.settings.get(key)
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+/** Where query variables come from, what they set, and what the dbt profile needs. */
+async function envState(orca: OrcaWorkerApi): Promise<EnvState> {
+  const { workspace, projectDir } = await locateProject(orca)
+  const configured = await stringSetting(orca, 'envFile')
+  const sources = envSources(workspace.path, projectDir, configured)
+  const vars = readEnvFiles(sources.files)
+  const fromFiles = new Set(vars.map((entry) => entry.key))
+  const needed = requiredEnvVars(projectDir, dbtEnvironment(workspace.path, projectDir, configured))
+  const show = (file: string) => displayPath(workspace.path, file)
+  return {
+    configured,
+    files: sources.files.map(show),
+    target: show(sources.target),
+    candidates: envCandidates(workspace.path, projectDir).map(show),
+    vars: vars.map((entry) => ({ ...entry, file: show(entry.file) })),
+    profile: needed.profile,
+    profilesFile: needed.profilesFile ? show(needed.profilesFile) : null,
+    required: needed.vars.map((entry) => ({
+      ...entry,
+      setBy: fromFiles.has(entry.key) ? 'file' : process.env[entry.key] !== undefined ? 'orca' : null
+    }))
+  }
 }
 
 /** The branch's changes mapped onto the manifest, with what they reach downstream. */
 async function branchChanges(orca: OrcaWorkerApi): Promise<BranchChanges> {
   const { projectDir, manifestPath, graph } = await loadProject(orca)
-  const configured = await orca.settings.get('baseBranch')
-  const diff = await branchDiff(projectDir, typeof configured === 'string' ? configured.trim() : '')
+  const diff = await branchDiff(projectDir, await stringSetting(orca, 'baseBranch'))
   const mapped = mapChanges(graph, diff.files)
   // An edited file newer than the manifest may hold models or refs the manifest lacks yet.
   const manifestTime = (await stat(manifestPath)).mtimeMs

@@ -1,6 +1,6 @@
 // Finds the dbt project inside a workspace and where its manifest lives.
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 
 /** Never dbt projects of their own: vendored packages, build output, environments. */
 const SKIPPED_DIRS: Record<string, true> = {
@@ -14,6 +14,16 @@ const SKIPPED_DIRS: Record<string, true> = {
 }
 const MAX_DEPTH = 3
 const MAX_DIRS = 2000
+
+/** The workspace root, the folders below it and the project folder itself, root first. */
+export function foldersDownTo(root: string, projectDir: string): string[] {
+  const folders = [projectDir]
+  for (let dir = projectDir; dir !== root && dir.startsWith(root) && dirname(dir) !== dir; ) {
+    dir = dirname(dir)
+    folders.unshift(dir)
+  }
+  return folders
+}
 
 /**
  * The folder holding dbt_project.yml: `configured` (relative to the workspace root, or absolute)

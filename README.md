@@ -15,6 +15,7 @@ One page, **dbt**, with three parts that move together:
   your `selectors.yml`. Picking a node draws its lineage.
 - **Model**: description (Markdown), tags, owner, meta, columns with their types and tests,
   neighbours, and **Data**: preview rows or run SQL (`{{ ref() }}` works) on the warehouse.
+  **Environment…** shows and edits the variables queries run with (see below).
 - **± Changes**: what your branch changed since its base (committed, uncommitted and untracked),
   drawn with everything downstream of it, so a pull request's impact is one click away. Changed
   nodes are tagged in every graph: **A** new file, **M** SQL changed, **Y** YAML changed, **ƒ** a
@@ -51,7 +52,7 @@ What it asks for, and why:
 | Runs a worker     | reading `target/manifest.json`, running your project's dbt for queries   |
 | `workspace:read`  | finding the focused workspace and its folder                             |
 | `workspace:write` | opening a model's file in an editor tab                                  |
-| `settings:own`    | the two settings below                                                   |
+| `settings:own`    | the plugin's settings (project folder, dbt command, base branch, env file) |
 
 ## How it finds your project
 
@@ -65,10 +66,16 @@ What it asks for, and why:
     `PATH`, `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`; set **dbt command** (such as
     `uv run dbt` or `dbtf`) to choose;
   - loads every `.env` from the workspace root down to the project, as `just` with
-    `dotenv-load` does, so `env_var()` in `profiles.yml` resolves;
+    `dotenv-load` does, so `env_var()` in `profiles.yml` resolves; set **Env file** to read one
+    file instead (`.env.local`, `secrets/prod.env`, …);
   - runs in the project folder, where dbt looks for `profiles.yml` before `~/.dbt`.
 
   Snowflake with `authenticator: externalbrowser` opens your browser to sign in the first time.
+- **Environment…** (in Data, and as **Set X…** when dbt reports a missing variable) lists the
+  variables the profile and `dbt_project.yml` read with `env_var()`, each **set**, **default** or
+  **missing**; the variables in the env files, masked until shown; and a form to add, edit or
+  delete them. Changes are written to the env file itself (the deepest `.env`, or the chosen
+  file), so `just`, direnv and your terminal see the same values. Pick another file there too.
 - **Changes** compare the branch with its merge base on `origin`'s default branch (else
   `origin/main`, `origin/master`, `main`, `master`); set **Base branch for Changes** when your
   pull requests merge elsewhere. A `.sql`/`.py`/`.csv` maps to its model, seed or snapshot, a

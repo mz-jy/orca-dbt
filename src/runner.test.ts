@@ -1,7 +1,7 @@
 // dbt's output as dbt-core 1.12 (v1) and dbt Fusion 2.0 (v2) print it.
 import { readFileSync } from 'node:fs'
 import { assert, test } from 'orca/testing'
-import { parseDbtVersion, parseDotenv, showRows } from './runner'
+import { parseDbtVersion, showRows } from './runner'
 
 const showLog = (version: string) => ({
   code: 0,
@@ -25,11 +25,4 @@ test('tells dbt-core from Fusion', () => {
     version: '1.12.6'
   })
   assert.deepEqual(parseDbtVersion('dbt-fusion 2.0.0-preview.120'), { flavor: 'fusion', version: '2.0.0-preview.120' })
-})
-
-test('reads .env files as dotenv does', () => {
-  assert.deepEqual(
-    parseDotenv('# comment\nexport WAREHOUSE=acme\nTARGET_ENV="dev" \nROLE=\'analyst\'\nEMPTY=\nNOTE=a b # trailing'),
-    { WAREHOUSE: 'acme', TARGET_ENV: 'dev', ROLE: 'analyst', EMPTY: '', NOTE: 'a b' }
-  )
 })
