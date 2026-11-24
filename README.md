@@ -1,10 +1,10 @@
-# dbt Catalog & Lineage for Orca
+# dbt for Orca
 
 A data catalog and lineage viewer for the dbt project in your Orca workspace. It works with dbt
 v1 (dbt-core) and v2 (dbt Fusion), and with any warehouse your dbt profile connects to:
 Snowflake, ClickHouse, Postgres, DuckDB and the rest.
 
-One page, **dbt Catalog & Lineage**, with three parts that move together:
+One page, **dbt**, with three parts that move together:
 
 - **Lineage graph**: the focused node's upstream and downstream, horizontal or vertical. Set the
   depth, or draw exactly what a dbt selector selects. Click a node to see it below, double-click
@@ -25,19 +25,19 @@ the workspace you are in.
 You need Orca 1.4.248 or newer. Nothing else: the plugin has no build step and no dependencies
 to install.
 
-In Orca's plugin directory: [dbt Catalog & Lineage](https://orca.dev/plugins/mz-jy.dbt-catalog?catalog=community).
-Or from a terminal:
+In Orca's plugin directory: [dbt for Orca](https://orca.dev/plugins/mz-jy.dbt?catalog=community).
+Or from a terminal (it installs as `mz-jy.dbt`):
 
 ```sh
-orca plugin install mz-jy/orca-dbt-catalog
+orca plugin install mz-jy/orca-dbt
 
 # or from a local clone
-git clone https://github.com/mz-jy/orca-dbt-catalog.git
-orca plugin install ./orca-dbt-catalog
+git clone https://github.com/mz-jy/orca-dbt.git
+orca plugin install ./orca-dbt
 ```
 
 Orca lists the access the plugin asks for and prints the same command with `--approve <code>`;
-run that to install it. In Orca, open **dbt Catalog & Lineage** from the right sidebar.
+run that to install it. In Orca, open the **dbt** panel from the right sidebar.
 
 What it asks for, and why:
 

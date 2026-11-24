@@ -1,4 +1,4 @@
-// The dbt Catalog & Lineage page: the lineage graph, the catalog explorer and the model sheet,
+// The dbt page: the lineage graph, the catalog explorer and the model sheet,
 // side by side when the panel is wide, the graph above a Catalog/Model sheet when it is narrow.
 // Every click in one view moves the others: picking a node in the catalog draws its lineage and
 // shows its docs; clicking a node in the graph shows its docs and marks it in the catalog.
