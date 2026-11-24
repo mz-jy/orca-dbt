@@ -2,8 +2,8 @@
   "manifestVersion": 2,
   "id": "dbt",
   "name": "dbt for Orca",
-  "version": "0.5.0",
-  "description": "A data catalog for the dbt project in your workspace: explore models by folder, tag, schema or owner, read their docs, columns and tests, select with dbt selectors, see visual lineage, check a pull request's impact (changed models and everything downstream), and preview data through the project's own dbt (v1 dbt-core or v2 Fusion; Snowflake, ClickHouse, Postgres and any other adapter).",
+  "version": "0.6.0",
+  "description": "A data catalog for the dbt project in your workspace: explore models by folder, tag, schema or owner, read their docs, columns and tests, select with dbt selectors, see visual lineage, run tests and track data quality (failing tests flagged on every node, with the rows they found), check a pull request's impact (changed models and everything downstream), and preview data through the project's own dbt (v1 dbt-core or v2 Fusion; Snowflake, ClickHouse, Postgres and any other adapter).",
   "author": {
     "name": "mz-jy",
     "url": "https://github.com/mz-jy"
@@ -71,6 +71,48 @@
     },
     {
       "kind": "settings:own"
+    }
+  ],
+  "cover": {
+    "path": "images/cover.webp",
+    "alt": "The Quality pane with failing tests by model, the lineage graph with failing nodes flagged, and the rows a failing test found."
+  },
+  "screenshots": [
+    {
+      "path": "images/quality-light.webp",
+      "alt": "The Quality pane: failing, warning and passing tests by model, the lineage with failing nodes flagged, and the rows a test found.",
+      "caption": "Run tests, see what fails, query the rows it found",
+      "theme": "light"
+    },
+    {
+      "path": "images/quality-dark.webp",
+      "alt": "The Quality pane: failing, warning and passing tests by model, the lineage with failing nodes flagged, and the rows a test found.",
+      "caption": "Run tests, see what fails, query the rows it found",
+      "theme": "dark"
+    },
+    {
+      "path": "images/lineage-light.webp",
+      "alt": "The catalog, the lineage around fct_orders with test results and branch changes marked on each node, and its columns with their types and tests.",
+      "caption": "Catalog, lineage and docs on one page",
+      "theme": "light"
+    },
+    {
+      "path": "images/lineage-dark.webp",
+      "alt": "The catalog, the lineage around fct_orders with test results and branch changes marked on each node, and its columns with their types and tests.",
+      "caption": "Catalog, lineage and docs on one page",
+      "theme": "dark"
+    },
+    {
+      "path": "images/changes-light.webp",
+      "alt": "Changes: what the branch changed and what that reaches downstream, the dbt build command for it, and a data preview of the changed mart.",
+      "caption": "A pull request's impact, and its data",
+      "theme": "light"
+    },
+    {
+      "path": "images/changes-dark.webp",
+      "alt": "Changes: what the branch changed and what that reaches downstream, the dbt build command for it, and a data preview of the changed mart.",
+      "caption": "A pull request's impact, and its data",
+      "theme": "dark"
     }
   ]
 }

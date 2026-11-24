@@ -1,0 +1,25 @@
+models:
+  - name: int_order_payments
+    description: What each order was paid, and how.
+    columns:
+      - name: order_id
+        data_tests: [unique]
+      - name: amount
+        data_tests: [non_negative]
+
+unit_tests:
+  - name: splits_add_up
+    description: Two payments on one order add up, and a card payment marks the order.
+    model: int_order_payments
+    given:
+      - input: ref('stg_payments')
+        rows:
+          - {payment_id: 1, order_id: 10, payment_method: card, amount: 3.5}
+          - {payment_id: 2, order_id: 10, payment_method: cash, amount: 1.0}
+      - input: ref('payment_methods')
+        rows:
+          - {payment_method: card, is_card: true}
+          - {payment_method: cash, is_card: false}
+    expect:
+      rows:
+        - {order_id: 10, payments: 2, amount: 4.5, paid_by_card: true}

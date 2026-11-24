@@ -1,0 +1,56 @@
+models:
+  - name: fct_orders
+    description: |
+      One row per order with what was paid. **Source of truth for revenue**: finance reconciles
+      it with the bank every Monday.
+    config:
+      meta:
+        owner: finance
+      tags: ['finance']
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+      - name: amount
+        description: Total paid, in euros.
+        data_tests: [not_null]
+
+  - name: dim_customers
+    description: One row per customer, with their ordering history.
+    config:
+      meta:
+        owner: growth
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: lifetime_value
+        description: Everything they ever paid, in euros.
+        data_tests: [non_negative]
+
+  - name: mart_revenue_daily
+    description: Revenue per store and day, for the weekly dashboard.
+    config:
+      meta:
+        owner: finance
+      tags: ['finance']
+    columns:
+      - name: revenue
+        data_tests: [non_negative]
+
+exposures:
+  - name: weekly_revenue
+    label: Weekly revenue dashboard
+    type: dashboard
+    maturity: high
+    description: The Monday review of revenue by store.
+    owner:
+      name: Finance
+      email: finance@example.com
+    depends_on:
+      - ref('mart_revenue_daily')
+      - ref('dim_customers')

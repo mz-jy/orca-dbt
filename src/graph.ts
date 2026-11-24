@@ -33,6 +33,22 @@ export type GraphNode = Omit<NodeDetail, 'parents' | 'children'> & {
  */
 export type RawSelector = { name?: string; description?: string; definition?: unknown } & Record<string, unknown>
 
+/** A data test or unit test, and the node it tests. */
+export type TestNode = {
+  id: string
+  /** The test's node name, what `dbt test --select` takes. */
+  name: string
+  /** The generic test (`not_null`, `dbt_utils.expression_is_true`), else the test's own name. */
+  label: string
+  kind: 'data' | 'unit'
+  column: string | null
+  /** The node it tests: attached_node (dbt 1.5+), else the first node it depends on. */
+  nodeId: string | null
+  packageName: string
+  /** Where its compiled SQL is written, project-relative: Fusion records it; dbt-core's layout. */
+  compiledFile: string | null
+}
+
 export type Graph = {
   projectName: string
   generatedAt: string | null
@@ -43,6 +59,8 @@ export type Graph = {
   selectors: Record<string, RawSelector>
   /** Macros by id: their file (project-relative) and the macros they call, for change impact. */
   macros: Map<string, { file: string; packageName: string; uses: string[] }>
+  /** Data tests and unit tests by id. */
+  tests: Map<string, TestNode>
 }
 
 type RawColumn = { name?: string; description?: string; data_type?: string | null }
@@ -72,6 +90,9 @@ type RawNode = {
   attached_node?: string | null
   column_name?: string | null
   test_metadata?: { name?: string; namespace?: string | null }
+  /** Where dbt writes the compiled SQL (Fusion records it for tests), and the test's own path. */
+  compiled_path?: string | null
+  path?: string
 }
 
 export type RawManifest = {
@@ -85,6 +106,8 @@ export type RawManifest = {
   parent_map?: Record<string, string[]>
   selectors?: Record<string, RawSelector>
   macros?: Record<string, { original_file_path?: string; package_name?: string; depends_on?: { macros?: string[] } }>
+  /** dbt 1.8+ unit tests: they test the model they depend on. */
+  unit_tests?: Record<string, RawNode>
 }
 
 type RawCatalogNode = {
@@ -135,9 +158,14 @@ export function buildGraph(manifest: RawManifest, catalog?: RawCatalog | null): 
     }
   }
 
+  const tests = new Map<string, TestNode>()
   for (const [id, raw] of Object.entries(manifest.nodes ?? {})) {
-    if ((raw.resource_type ?? id.slice(0, id.indexOf('.'))) === 'test') attachTest(nodes, raw)
+    if ((raw.resource_type ?? id.slice(0, id.indexOf('.'))) !== 'test') continue
+    const test = toTest(id, raw, 'data', nodes)
+    tests.set(id, test)
+    attachTest(nodes, test)
   }
+  for (const [id, raw] of Object.entries(manifest.unit_tests ?? {})) tests.set(id, toTest(id, raw, 'unit', nodes))
   for (const [id, entry] of Object.entries({ ...catalog?.nodes, ...catalog?.sources })) {
     const node = nodes.get(id)
     if (node) mergeCatalog(node, entry)
@@ -171,7 +199,8 @@ export function buildGraph(manifest: RawManifest, catalog?: RawCatalog | null): 
         id,
         { file: macro.original_file_path ?? '', packageName: macro.package_name ?? '', uses: macro.depends_on?.macros ?? [] }
       ])
-    )
+    ),
+    tests
   }
 }
 
@@ -208,7 +237,6 @@ function toNode(id: string, type: string, raw: RawNode, projectName: string): Gr
       description: column.description ?? '',
       tests: []
     })),
-    tests: [],
     rowCount: null,
     folder: packageName && projectName && packageName !== projectName
       ? ['dbt_packages', packageName, directory].filter(Boolean).join('/')
@@ -229,28 +257,43 @@ function toNode(id: string, type: string, raw: RawNode, projectName: string): Gr
   }
 }
 
-/** Files a test under the node (or column) it tests. */
-function attachTest(nodes: Map<string, GraphNode>, test: RawNode): void {
-  const target = test.attached_node ?? test.depends_on?.nodes?.find((id) => nodes.has(id))
-  const node = target ? nodes.get(target) : undefined
-  if (!node) return
-  const generic = test.test_metadata?.name
-  const label = generic
-    ? test.test_metadata?.namespace
-      ? `${test.test_metadata.namespace}.${generic}`
-      : generic
-    : (test.name ?? 'test')
-  if (!test.column_name) {
-    if (!node.tests.includes(label)) node.tests.push(label)
-    return
+function toTest(id: string, raw: RawNode, kind: TestNode['kind'], nodes: Map<string, GraphNode>): TestNode {
+  const name = raw.name ?? id
+  const generic = raw.test_metadata?.name
+  const packageName = raw.package_name ?? ''
+  const source = raw.original_file_path ?? ''
+  // dbt-core writes target/compiled/<package>/<file>, and a YAML file's tests under it by path.
+  const coreFile = source && `target/compiled/${packageName}/${/\.ya?ml$/.test(source) ? `${source}/${raw.path ?? `${name}.sql`}` : source}`
+  return {
+    id,
+    name,
+    label: generic ? (raw.test_metadata?.namespace ? `${raw.test_metadata.namespace}.${generic}` : generic) : name,
+    kind,
+    column: raw.column_name || null,
+    nodeId: raw.attached_node ?? raw.depends_on?.nodes?.find((node) => nodes.has(node)) ?? null,
+    packageName,
+    compiledFile: kind === 'unit' ? null : (raw.compiled_path ?? (coreFile || null))
   }
-  const wanted = test.column_name.toLowerCase()
+}
+
+/** Files a column test's label under the column it tests (results come from TestResults). */
+function attachTest(nodes: Map<string, GraphNode>, test: TestNode): void {
+  const node = test.nodeId ? nodes.get(test.nodeId) : undefined
+  if (!node || !test.column) return
+  const wanted = test.column.toLowerCase()
   let column = node.columns.find((candidate) => candidate.name.toLowerCase() === wanted)
   if (!column) {
-    column = { name: test.column_name, type: null, description: '', tests: [] }
+    column = { name: test.column, type: null, description: '', tests: [] }
     node.columns.push(column)
   }
-  if (!column.tests.includes(label)) column.tests.push(label)
+  if (!column.tests.includes(test.label)) column.tests.push(test.label)
+}
+
+/** How `dbt … --select` names a node: `source:<source>.<table>` for sources, else its name. */
+export function selectorTerm(node: Pick<GraphNode, 'id' | 'type' | 'name'>): string {
+  if (node.type !== 'source') return node.name
+  const [, , sourceName, ...table] = node.id.split('.')
+  return `source:${sourceName}.${table.join('.')}`
 }
 
 /** Fills column types the YAML left out, adds undocumented columns, and the row count. */
@@ -298,7 +341,6 @@ export function focus(graph: Graph, id: string): NodeFocus | null {
       owner: node.owner,
       meta: node.meta,
       columns: node.columns,
-      tests: node.tests,
       rowCount: node.rowCount
     },
     parents: neighbors(graph, id, 'up'),
@@ -344,7 +386,11 @@ function byTypeThenName(a: NodeSummary, b: NodeSummary): number {
   )
 }
 
-function groupKeys(node: GraphNode, by: Exclude<GroupBy, 'folder'>): string[] {
+function groupKeys(node: GraphNode, by: Exclude<GroupBy, 'folder' | 'none'>): string[] {
+  if (by.startsWith('meta:')) {
+    const key = by.slice('meta:'.length)
+    return [node.meta.find((entry) => entry.key === key)?.value ?? NO_GROUP]
+  }
   switch (by) {
     case 'tag':
       return node.tags.length > 0 ? node.tags : [NO_GROUP]
@@ -356,7 +402,16 @@ function groupKeys(node: GraphNode, by: Exclude<GroupBy, 'folder'>): string[] {
       return [node.packageName || NO_GROUP]
     case 'owner':
       return [node.owner ?? NO_GROUP]
+    default:
+      return [NO_GROUP]
   }
+}
+
+/** Every meta key any node has, A–Z. */
+function metaKeys(graph: Graph): string[] {
+  const keys = new Set<string>()
+  for (const node of graph.nodes.values()) for (const entry of node.meta) keys.add(entry.key)
+  return [...keys].sort()
 }
 
 /**
@@ -366,7 +421,9 @@ function groupKeys(node: GraphNode, by: Exclude<GroupBy, 'folder'>): string[] {
 export function catalogLevel(graph: Graph, by: GroupBy, path: string, cap: number): CatalogLevel {
   const counts = new Map<string, number>()
   const direct: string[] = []
-  if (by === 'folder') {
+  if (by === 'none') {
+    direct.push(...graph.nodes.keys())
+  } else if (by === 'folder') {
     const prefix = path ? `${path}/` : ''
     for (const [id, node] of graph.nodes) {
       if (node.folder === path) direct.push(id)
@@ -383,13 +440,16 @@ export function catalogLevel(graph: Graph, by: GroupBy, path: string, cap: numbe
       }
     }
   }
-  const nodes = direct.map((id) => summarize(graph, id)).sort(byTypeThenName)
+  const nodes = direct
+    .map((id) => summarize(graph, id))
+    .sort(by === 'none' ? (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }) : byTypeThenName)
   return {
     groups: [...counts]
       .sort(([a], [b]) => (a === NO_GROUP ? 1 : b === NO_GROUP ? -1 : a.localeCompare(b)))
       .map(([key, count]) => ({ key, label: by === 'folder' ? key.slice(key.lastIndexOf('/') + 1) : key, count })),
     nodes: nodes.slice(0, cap),
-    more: Math.max(0, nodes.length - cap)
+    more: Math.max(0, nodes.length - cap),
+    ...(path ? {} : { metaKeys: metaKeys(graph) })
   }
 }
 
@@ -475,7 +535,13 @@ function drawable(graph: Graph, included: ReadonlySet<string>, focusId: string |
       relation: node.relation,
       file: node.file,
       hiddenParents: graph.parents.get(nodeId)!.filter((parent) => !included.has(parent)).length,
-      hiddenChildren: graph.children.get(nodeId)!.filter((child) => !included.has(child)).length
+      hiddenChildren: graph.children.get(nodeId)!.filter((child) => !included.has(child)).length,
+      folder: node.folder,
+      tags: node.tags,
+      schema: node.schemaName,
+      owner: node.owner,
+      packageName: node.packageName,
+      meta: Object.fromEntries(node.meta.map((entry) => [entry.key, entry.value]))
     }
   })
   const edges: [string, string][] = []

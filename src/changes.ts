@@ -1,7 +1,7 @@
 // From a branch's changed files to the dbt nodes they change and everything downstream: the
 // impact of a pull request, read from git rather than from a production manifest
 // (dbt's `state:modified+` needs one). Pure: git runs in src/git.ts.
-import { summarize, type Graph } from './graph'
+import { selectorTerm, summarize, type Graph } from './graph'
 import type { ChangedNode, ChangeKind, NodeSummary } from './protocol'
 
 /** A changed file, relative to the dbt project folder. `U` is untracked (new, not added yet). */
@@ -123,13 +123,9 @@ export function buildCommand(graph: Graph, changed: readonly ChangedNode[]): str
   }
   const terms = changed
     .filter((node) => !reached.has(node.id))
-    .flatMap((node) => {
-      if (node.type === 'source') {
-        const [, , sourceName, ...table] = node.id.split('.')
-        return [`source:${sourceName}.${table.join('.')}+`]
-      }
-      return node.type === 'model' || node.type === 'seed' || node.type === 'snapshot' ? [`${node.name}+`] : []
-    })
+    .flatMap((node) =>
+      node.type === 'source' || node.type === 'model' || node.type === 'seed' || node.type === 'snapshot' ? [`${selectorTerm(node)}+`] : []
+    )
   if (terms.length === 0) return null
   const shown = terms.slice(0, MAX_COMMAND_TERMS)
   return `dbt build --select ${shown.join(' ')}${terms.length > shown.length ? ' …' : ''}`

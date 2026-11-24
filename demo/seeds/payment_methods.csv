@@ -1,0 +1,5 @@
+payment_method,label,is_card
+card,Card,true
+cash,Cash,false
+voucher,Gift voucher,false
+bank_transfer,Bank transfer,false

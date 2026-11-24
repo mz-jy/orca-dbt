@@ -2,58 +2,80 @@
 <html>
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="page.css" />
   </head>
   <body>
-    <header class="toolbar">
-      <input id="search" type="search" placeholder="Search models, columns, docs…" autocomplete="off" spellcheck="false" />
-      <div class="selector-row">
+    <header class="topbar">
+      <div class="project" id="project">
+        <span class="project-mark" aria-hidden="true">dbt</span>
+        <div class="project-text">
+          <span class="project-name" id="project-name">dbt</span>
+          <span class="project-meta" id="project-meta">Reading the manifest…</span>
+        </div>
+      </div>
+      <div class="omnibox" id="omnibox">
+        <span class="omnibox-icon" id="omnibox-icon"></span>
         <input
-          id="selector"
+          id="search"
           type="text"
-          placeholder="dbt selector: +orders+ tag:finance --exclude …  (Enter)"
+          placeholder="Search, or type a dbt selector and press ↵"
           autocomplete="off"
           spellcheck="false"
+          aria-label="Search nodes or enter a dbt selector"
         />
-        <select id="yaml" hidden title="YAML selectors from selectors.yml"></select>
-        <button id="clear-selector" type="button" title="Clear the selector" hidden>×</button>
-        <button id="changes" type="button" title="What this branch changed, and everything downstream">± Changes</button>
+        <kbd class="omnibox-hint" id="omnibox-hint">/</kbd>
+        <button id="clear-search" type="button" class="btn btn-ghost btn-icon btn-sm" title="Clear (Esc)" hidden></button>
+        <select id="yaml" class="omnibox-yaml" hidden title="YAML selectors from selectors.yml"></select>
       </div>
     </header>
-    <div id="status" class="status">Reading the dbt manifest…</div>
-    <main id="workspace" class="workspace sheet-catalog">
+    <div id="notice" class="notice" role="status" hidden></div>
+    <main id="workspace" class="workspace">
+      <nav class="tabs pane-tabs" id="tabs" aria-label="Panes">
+        <button type="button" class="tab" data-tab="catalog"></button>
+        <button type="button" class="tab" data-tab="changes"></button>
+        <button type="button" class="tab" data-tab="quality"></button>
+        <button type="button" class="tab narrow-only" data-tab="details"></button>
+        <span class="grip narrow-only" id="grip" title="Drag to resize"></span>
+      </nav>
       <section class="graph-area" aria-label="Lineage graph">
         <svg id="svg">
           <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path d="M0,0 L10,5 L0,10 z" />
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M1,1 L9,5 L1,9 z" />
             </marker>
-            <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path d="M0,0 L10,5 L0,10 z" />
+            <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M1,1 L9,5 L1,9 z" />
             </marker>
           </defs>
           <g id="viewport">
+            <g id="clusters"></g>
             <g id="edges"></g>
             <g id="nodes"></g>
           </g>
         </svg>
-        <div id="empty" class="empty" hidden></div>
-        <div class="graph-controls">
-          <label title="Upstream levels">↑ <select id="up"></select></label>
-          <label title="Downstream levels">↓ <select id="down"></select></label>
-          <button id="orientation" type="button"></button>
-          <button id="fit" type="button" title="Fit the whole graph">Fit</button>
+        <div id="empty" class="graph-empty" hidden></div>
+        <div id="graph-context" class="graph-context" hidden></div>
+        <div class="graph-toolbar" id="graph-toolbar">
+          <div class="depth" id="depth-up" title="Upstream levels"></div>
+          <div class="depth" id="depth-down" title="Downstream levels"></div>
+          <span class="toolbar-sep" id="depth-sep"></span>
+          <label class="group-by" title="Group the graph's nodes"
+            ><span class="group-by-icon" id="group-by-icon"></span><select id="graph-group" aria-label="Group the graph by"></select
+          ></label>
+          <span class="toolbar-sep"></span>
+          <button id="orientation" type="button" class="btn btn-ghost btn-icon"></button>
+          <button id="zoom-out" type="button" class="btn btn-ghost btn-icon" title="Zoom out"></button>
+          <button id="zoom-in" type="button" class="btn btn-ghost btn-icon" title="Zoom in"></button>
+          <button id="fit" type="button" class="btn btn-ghost btn-icon" title="Fit the whole graph"></button>
         </div>
       </section>
-      <div id="sheet-bar" class="sheet-bar" title="Drag to resize">
-        <button type="button" data-sheet="catalog">Catalog</button>
-        <button type="button" data-sheet="model">Model</button>
-        <span class="grip"></span>
-      </div>
-      <section id="explorer" class="explorer" aria-label="Catalog"></section>
-      <section id="details" class="details" aria-label="Model"></section>
+      <section id="explorer" class="pane explorer" aria-label="Catalog"></section>
+      <section id="changes" class="pane changes" aria-label="Branch changes"></section>
+      <section id="quality" class="pane quality" aria-label="Data quality"></section>
+      <section id="details" class="pane details" aria-label="Node details"></section>
     </main>
-    <dialog id="env-dialog" class="env-dialog" aria-label="Query environment"></dialog>
+    <dialog id="env-dialog" class="dialog env-dialog" aria-label="Query environment"></dialog>
     <script type="module" src="app.ts"></script>
   </body>
 </html>

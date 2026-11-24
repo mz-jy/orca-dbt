@@ -33,14 +33,12 @@ export type NodeDetail = NodeSummary & {
   /** The node's meta (config.meta merged in), values as text. */
   meta: { key: string; value: string }[]
   columns: ColumnInfo[]
-  /** Tests on the node itself rather than one column. */
-  tests: string[]
   /** From target/catalog.json, when `dbt docs generate` has written one. */
   rowCount: number | null
 }
 
-/** How the catalog explorer groups nodes. */
-export type GroupBy = 'folder' | 'tag' | 'schema' | 'type' | 'package' | 'owner'
+/** How the catalog explorer groups nodes: not at all (one A–Z list), by a property, or by a meta key. */
+export type GroupBy = 'none' | 'folder' | 'tag' | 'schema' | 'type' | 'package' | 'owner' | `meta:${string}`
 
 /** One level of the explorer: sub-groups first, then the nodes that sit directly in it. */
 export type CatalogLevel = {
@@ -48,6 +46,8 @@ export type CatalogLevel = {
   nodes: NodeSummary[]
   /** Nodes left out past the per-level cap. */
   more: number
+  /** At the top level: every meta key in the project, to group by. */
+  metaKeys?: string[]
 }
 
 export type QueryCell = string | number | boolean | null
@@ -83,6 +83,13 @@ export type GraphNodeView = NodeSummary & {
   /** Direct parents and children the graph leaves out. */
   hiddenParents: number
   hiddenChildren: number
+  /** What the graph can group nodes by: the file's folder, tags, database.schema, owner, package, meta. */
+  folder: string
+  tags: string[]
+  schema: string | null
+  owner: string | null
+  packageName: string
+  meta: Record<string, string>
 }
 
 export type LineageGraph = {
@@ -149,6 +156,48 @@ export type EnvState = {
   required: { key: string; hasDefault: boolean; setBy: 'file' | 'orca' | null }[]
 }
 
+/** How a test last ran, worst first: error > fail > warn > skipped > pass. */
+export type TestStatus = 'error' | 'fail' | 'warn' | 'skipped' | 'pass'
+
+/** A data test or unit test with its latest result (status null: never ran). */
+export type TestResult = {
+  id: string
+  name: string
+  /** not_null, accepted_values, …; a singular or unit test's own name. */
+  label: string
+  kind: 'data' | 'unit'
+  column: string | null
+  /** The node it tests. */
+  node: NodeSummary | null
+  status: TestStatus | null
+  /** Rows the test found (a failing test's failures), when dbt reports them. */
+  failures: number | null
+  message: string | null
+  ms: number | null
+  /** When the run that produced the result finished (ISO). */
+  at: string | null
+  /** Whether "failing rows" can query what the test found. */
+  rows: boolean
+}
+
+/** A node's tests summed up for the flags in the graph, the catalog and the model sheet. */
+export type QualityFlag = { status: TestStatus; problems: number; tests: number }
+
+/** A test run in progress. */
+export type QualityRun = { jobId: string; label: string; startedAt: number }
+
+export type QualityReport = {
+  /** Tests by latest status; `never` for those without a result. */
+  counts: Record<TestStatus | 'never', number>
+  lastRun: string | null
+  /** By node id: the worst status of its tests that ran. */
+  flags: Record<string, QualityFlag>
+  /** The tests asked for, worst first; `more` past the limit. */
+  tests: TestResult[]
+  more: number
+  running: QualityRun | null
+}
+
 declare module 'orca' {
   interface PluginRequests {
     /** Finds the focused workspace's dbt project and reads its manifest. */
@@ -185,7 +234,10 @@ declare module 'orca' {
      * project's own dbt (`dbt show`), so it uses the profile's warehouse and credentials. Answers
      * at once with the job id; the result arrives as `query.done`.
      */
-    'query.start': { input: { id?: string; sql?: string; limit: number }; output: { jobId: string; sql: string } }
+    'query.start': {
+      input: { id?: string; sql?: string; testId?: string; limit: number }
+      output: { jobId: string; sql: string }
+    }
     /** Stops a running query or parse job. */
     'query.cancel': { input: { jobId: string }; output: { cancelled: boolean } }
     /** Runs `dbt parse` to write target/manifest.json; the result arrives as `parse.done`. */
@@ -207,9 +259,21 @@ declare module 'orca' {
     'env.delete': { input: { key: string }; output: EnvState }
     /** Reads variables from `file` (workspace-relative or absolute), or every .env with ''. */
     'env.choose': { input: { file: string }; output: EnvState }
+    /**
+     * Test results: the problems (failing, erroring, warning), every test with `all`, or one
+     * node's tests with `nodeId`. Reads target/run_results.json first, so runs from a terminal count.
+     */
+    'quality.read': { input: { all?: boolean; nodeId?: string }; output: QualityReport }
+    /**
+     * Runs `dbt test`: on a node, a dbt selector, the tests `testIds`, or every test. Answers at
+     * once; `quality.done` follows. One run at a time per project.
+     */
+    'quality.run': { input: { nodeId?: string; selector?: string; testIds?: string[] }; output: QualityRun }
   }
   interface PluginPanelEvents {
     'query.done': QueryResult
     'parse.done': { jobId: string; ok: boolean; error?: string }
+    /** A test run ended: `ran` tests have new results, or `error` says why there are none. */
+    'quality.done': { jobId: string; ok: boolean; ran: number; error?: string }
   }
 }

@@ -2,7 +2,8 @@
 // down, or one chosen file), what they set (values masked until revealed), what the dbt profile
 // reads with env_var() and whether it is set, and a form that saves into the env file.
 import type { EnvState } from '../src/protocol'
-import { el, errorMessage, fill } from './dom'
+import { button, el, errorMessage, fill, sectionHead } from './dom'
+import { icon } from './icons'
 
 /** The source select's values that are not a file. */
 const EVERY_ENV = ''
@@ -21,6 +22,10 @@ export class EnvView {
     private readonly changed: (state: EnvState) => void
   ) {
     dialog.addEventListener('close', () => (this.confirmingDelete = null))
+    // A click on the backdrop closes it.
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close()
+    })
   }
 
   /** Opens the dialog, ready to add `key` when given (a variable dbt said was missing). */
@@ -28,6 +33,7 @@ export class EnvView {
     this.draft = { key, value: '' }
     this.error = null
     if (!this.dialog.open) this.dialog.showModal()
+    this.render()
     await this.run(() => orca.plugin.request('env.read'))
     this.dialog.querySelector<HTMLInputElement>(key ? '#env-value' : '#env-key')?.focus()
   }
@@ -46,42 +52,43 @@ export class EnvView {
 
   private render(): void {
     const state = this.state
-    const close = el('button', { type: 'button', class: 'close', title: 'Close' }, '×')
-    close.addEventListener('click', () => this.dialog.close())
+    const head = el(
+      'header',
+      { class: 'dialog-head' },
+      el('div', {}, el('h2', {}, 'Query environment'), el('p', {}, "Variables dbt runs with, on top of Orca's own environment (Orca's win on a clash). profiles.yml reads them with env_var().")),
+      button('', () => this.dialog.close(), { variant: 'ghost', icon: 'close', title: 'Close (Esc)' })
+    )
     if (!state) {
-      fill(this.dialog, el('div', { class: 'env-head' }, el('h2', {}, 'Query environment'), close), el('p', { class: 'muted' }, this.error ?? 'Reading…'))
+      fill(this.dialog, head, el('div', { class: 'dialog-body' }, el('p', { class: 'pane-note' }, this.error ?? 'Reading…')))
       return
     }
     const setInFiles = new Map(state.vars.map((entry) => [entry.key, entry]))
     fill(
       this.dialog,
-      el('div', { class: 'env-head' }, el('h2', {}, 'Query environment'), close),
+      head,
       el(
-        'p',
-        { class: 'muted small' },
-        "dbt runs with Orca's own environment plus these variables (Orca's wins on a clash), not your shell's. profiles.yml reads them with env_var()."
+        'div',
+        { class: 'dialog-body' },
+        this.sourcePicker(state),
+        el(
+          'p',
+          { class: 'pane-note' },
+          state.files.length > 0 ? `Reading ${state.files.join(', ')}. ` : 'No env file yet. ',
+          'Saving to ',
+          el('code', {}, state.target),
+          '.'
+        ),
+        this.error ? el('div', { class: 'callout danger' }, icon('alert', 14), el('pre', {}, this.error)) : null,
+        state.required.length > 0 ? this.requiredList(state) : null,
+        el(
+          'section',
+          { class: 'block' },
+          sectionHead('Variables', state.vars.length),
+          state.vars.length > 0
+            ? el('div', { class: 'table-wrap' }, el('table', { class: 'env-table' }, el('tbody', {}, ...state.vars.map((entry) => this.varRow(entry.key, entry.value, entry.file)))))
+            : el('p', { class: 'pane-note' }, 'None yet.')
+        )
       ),
-      this.sourcePicker(state),
-      el(
-        'p',
-        { class: 'muted small' },
-        state.files.length > 0 ? `Reading ${state.files.join(', ')}. ` : 'No env file yet. ',
-        `Saving to ${state.target}.`
-      ),
-      this.error ? el('pre', { class: 'error' }, this.error) : null,
-      state.required.length > 0 ? this.requiredList(state) : null,
-      el('h3', {}, `Variables (${state.vars.length})`),
-      state.vars.length > 0
-        ? el(
-            'div',
-            { class: 'table-wrap' },
-            el(
-              'table',
-              { class: 'env-table' },
-              el('tbody', {}, ...state.vars.map((entry) => this.varRow(entry.key, entry.value, entry.file)))
-            )
-          )
-        : el('p', { class: 'muted' }, 'None yet.'),
       this.form(setInFiles.has(this.draft.key))
     )
   }
@@ -94,44 +101,45 @@ export class EnvView {
     select.value = state.configured
     const path = el('input', { type: 'text', title: 'Path, relative to the workspace root or absolute', hidden: true }) as HTMLInputElement
     path.placeholder = 'secrets/prod.env'
-    const use = el('button', { type: 'button', class: 'primary', hidden: true }, 'Use')
     const choose = (file: string) => void this.run(() => orca.plugin.request('env.choose', { file }))
+    const use = button('Use', () => path.value.trim() && choose(path.value.trim()), { variant: 'primary', small: true })
+    use.hidden = true
     select.addEventListener('change', () => {
       const other = select.value === OTHER_FILE
       path.hidden = use.hidden = !other
       if (other) path.focus()
       else choose(select.value)
     })
-    use.addEventListener('click', () => path.value.trim() && choose(path.value.trim()))
     path.addEventListener('keydown', (event) => event.key === 'Enter' && path.value.trim() && choose(path.value.trim()))
-    return el('div', { class: 'env-source' }, el('label', {}, 'Variables from ', select), path, use)
+    return el('div', { class: 'field' }, el('label', {}, 'Read variables from'), el('div', { class: 'field-row' }, select, path, use))
   }
 
   private requiredList(state: EnvState): HTMLElement {
     return el(
-      'div',
-      {},
-      el('h3', {}, `Profile ${state.profile || '?'} reads`),
-      state.profilesFile ? el('p', { class: 'muted small' }, `From ${state.profilesFile} and dbt_project.yml.`) : null,
+      'section',
+      { class: 'block' },
+      sectionHead(`Profile ${state.profile || '?'} reads`, state.required.length),
+      state.profilesFile ? el('p', { class: 'pane-note' }, `From ${state.profilesFile} and dbt_project.yml.`) : null,
       el(
         'ul',
         { class: 'env-required' },
         ...state.required.map((entry) => {
           const status =
             entry.setBy === 'file'
-              ? el('span', { class: 'pill ok' }, 'set')
+              ? el('span', { class: 'pill status-pass' }, 'set')
               : entry.setBy === 'orca'
-                ? el('span', { class: 'pill ok', title: "Set in Orca's own environment" }, 'set by Orca')
+                ? el('span', { class: 'pill status-pass', title: "Set in Orca's own environment" }, 'set by Orca')
                 : entry.hasDefault
                   ? el('span', { class: 'pill', title: 'env_var() gives a default' }, 'default')
-                  : el('span', { class: 'pill missing' }, 'missing')
-          const add = entry.setBy ? null : el('button', { type: 'button' }, 'Add')
-          add?.addEventListener('click', () => {
-            this.draft = { key: entry.key, value: '' }
-            this.render()
-            this.dialog.querySelector<HTMLInputElement>('#env-value')?.focus()
-          })
-          return el('li', {}, el('code', {}, entry.key), status, add)
+                  : el('span', { class: 'pill status-fail' }, 'missing')
+          const add = entry.setBy
+            ? null
+            : button('Set', () => {
+                this.draft = { key: entry.key, value: '' }
+                this.render()
+                this.dialog.querySelector<HTMLInputElement>('#env-value')?.focus()
+              }, { small: true, variant: 'ghost', icon: 'plus' })
+          return el('li', {}, el('code', {}, entry.key), el('span', { class: 'spacer' }), status, add)
         })
       )
     )
@@ -139,21 +147,18 @@ export class EnvView {
 
   private varRow(key: string, value: string, file: string): HTMLTableRowElement {
     const shown = this.revealed.has(key)
-    const reveal = el('button', { type: 'button', title: shown ? 'Hide' : 'Show' }, shown ? 'Hide' : 'Show')
-    reveal.addEventListener('click', () => {
+    const reveal = button('', () => {
       if (shown) this.revealed.delete(key)
       else this.revealed.add(key)
       this.render()
-    })
-    const edit = el('button', { type: 'button' }, 'Edit')
-    edit.addEventListener('click', () => {
+    }, { variant: 'ghost', small: true, icon: shown ? 'eyeOff' : 'eye', title: shown ? 'Hide the value' : 'Show the value' })
+    const edit = button('', () => {
       this.draft = { key, value }
       this.render()
       this.dialog.querySelector<HTMLInputElement>('#env-value')?.focus()
-    })
+    }, { variant: 'ghost', small: true, icon: 'pencil', title: `Edit ${key}` })
     const confirming = this.confirmingDelete === key
-    const remove = el('button', { type: 'button', class: confirming ? 'danger' : '', title: `Remove ${key} from ${file}` }, confirming ? 'Delete?' : '✕')
-    remove.addEventListener('click', () => {
+    const remove = button(confirming ? 'Delete?' : '', () => {
       if (!confirming) {
         this.confirmingDelete = key
         this.render()
@@ -161,13 +166,13 @@ export class EnvView {
       }
       this.confirmingDelete = null
       void this.run(() => orca.plugin.request('env.delete', { key }))
-    })
+    }, { variant: confirming ? 'danger' : 'ghost', small: true, icon: confirming ? undefined : 'trash', title: `Remove ${key} from ${file}` })
     return el(
       'tr',
       {},
-      el('td', {}, el('code', {}, key)),
-      el('td', { class: 'value' }, el('code', {}, shown ? value || '(empty)' : value ? '••••••••' : '(empty)')),
-      el('td', { class: 'muted small' }, file),
+      el('td', {}, el('code', { class: 'env-key' }, key)),
+      el('td', { class: 'value' }, el('code', { class: value ? '' : 'muted' }, shown ? value || '(empty)' : value ? '••••••••' : '(empty)')),
+      el('td', { class: 'env-file', title: file }, file),
       el('td', { class: 'actions-cell' }, reveal, edit, remove)
     )
   }
@@ -184,7 +189,6 @@ export class EnvView {
     value.value = this.draft.value
     const show = el('input', { type: 'checkbox', title: 'Show the value' }) as HTMLInputElement
     show.addEventListener('change', () => (value.type = show.checked ? 'text' : 'password'))
-    const save = el('button', { type: 'button', class: 'primary' }, replacing ? 'Update' : 'Add')
     const submit = () => {
       const name = key.value.trim()
       if (!name) return key.focus()
@@ -193,13 +197,20 @@ export class EnvView {
     }
     key.addEventListener('input', () => (this.draft.key = key.value))
     value.addEventListener('input', () => (this.draft.value = value.value))
-    save.addEventListener('click', submit)
     for (const input of [key, value]) input.addEventListener('keydown', (event) => event.key === 'Enter' && submit())
     return el(
-      'div',
-      { class: 'env-form' },
-      el('h3', {}, replacing ? `Update ${this.draft.key}` : 'Add a variable'),
-      el('div', { class: 'env-form-row' }, key, el('span', {}, '='), value, el('label', { class: 'muted small' }, show, ' show'), save)
+      'footer',
+      { class: 'dialog-foot' },
+      el('div', { class: 'field' }, el('label', {}, replacing ? `Update ${this.draft.key}` : 'Add a variable')),
+      el(
+        'div',
+        { class: 'env-form-row' },
+        key,
+        el('span', { class: 'muted' }, '='),
+        value,
+        el('label', { class: 'check' }, show, 'show'),
+        button(replacing ? 'Update' : 'Add', submit, { variant: 'primary', small: true })
+      )
     )
   }
 }

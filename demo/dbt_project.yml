@@ -1,0 +1,22 @@
+name: coffee_shop
+version: '1.0.0'
+profile: coffee_shop
+
+model-paths: ['models']
+seed-paths: ['seeds']
+test-paths: ['tests']
+
+# The till's CSV exports, as the views the `shop` source reads (works with dbt-core and Fusion).
+on-run-start:
+  - create schema if not exists shop
+  - "{% for table in ['customers', 'orders', 'payments'] %}create or replace view shop.{{ table }} as select * from read_csv('data/{{ table }}.csv', header = true);{% endfor %}"
+
+models:
+  coffee_shop:
+    staging:
+      +materialized: view
+      +tags: ['staging']
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table

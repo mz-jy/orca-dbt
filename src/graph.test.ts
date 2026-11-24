@@ -58,4 +58,22 @@ for (const version of ['v1', 'v2']) {
       { groups: [], nodes: [catalogLevel(graph, 'folder', 'models/staging', 1).nodes[0]], more: 1 }
     )
   })
+
+  test(`${version}: catalog without groups, and by a meta key`, () => {
+    const flat = catalogLevel(graph, 'none', '', 100)
+    assert.deepEqual(flat.groups, [])
+    assert.equal(flat.nodes.length, graph.nodes.size)
+    assert.deepEqual(
+      flat.nodes.map((node) => node.name),
+      flat.nodes.map((node) => node.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    )
+    assert.ok(Array.isArray(flat.metaKeys))
+    for (const key of flat.metaKeys ?? []) {
+      const level = catalogLevel(graph, `meta:${key}`, '', 100)
+      assert.equal(
+        level.groups.reduce((sum, group) => sum + group.count, 0),
+        graph.nodes.size
+      )
+    }
+  })
 }

@@ -1,0 +1,14 @@
+sources:
+  - name: shop
+    description: Exports from the till system, one CSV per table.
+    schema: shop
+    config:
+      meta:
+        owner: data-platform
+    tables:
+      - name: customers
+        description: Loyalty-card holders.
+      - name: orders
+        description: Every order rung up at the three stores.
+      - name: payments
+        description: Payments against orders; an order can be split across two.

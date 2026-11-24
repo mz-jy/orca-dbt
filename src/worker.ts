@@ -34,7 +34,8 @@ import {
 } from './env'
 import { branchDiff, GitError } from './git'
 import { findProjectDir, manifestPathFor } from './project'
-import type { BranchChanges, DbtEngine, EnvState, ProjectProblem, ProjectStatus } from './protocol'
+import type { BranchChanges, DbtEngine, EnvState, ProjectProblem, ProjectStatus, QualityRun } from './protocol'
+import { testArgs, TestResults } from './quality'
 import { dbtCommand, dbtError, parseDbtVersion, runDbt, showRows, type DbtResult } from './runner'
 import { select, SelectorError, yamlSelectors } from './selector'
 
@@ -68,6 +69,12 @@ const jobs = new Map<string, AbortController>()
 /** `dbt --version` answers by command; it takes seconds for dbt-core. */
 const engines = new Map<string, Promise<DbtEngine>>()
 const DEFAULT_SELECTION_LIMIT = 500
+/** Tests one quality.read lists; counts and flags always cover every test. */
+const QUALITY_LIST_LIMIT = 1000
+/** Test results by project folder. */
+const testResults = new Map<string, TestResults>()
+/** The test run in progress, by project folder. */
+const testRuns = new Map<string, QualityRun>()
 
 export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('lineage.status', async (): Promise<ProjectStatus> => {
@@ -220,14 +227,19 @@ export default function activate(orca: OrcaWorkerApi): void {
     return { opened: true }
   })
 
-  orca.panels.handle('query.start', async ({ id, sql: given, limit }) => {
-    const { workspace, projectDir, graph } = await loadProject(orca)
+  orca.panels.handle('query.start', async ({ id, sql: given, testId, limit }) => {
+    const project = await loadProject(orca)
+    const { workspace, projectDir, graph } = project
     const node = id ? graph.nodes.get(id) : undefined
-    const sql = given?.trim() || (node && previewSql(node.id, node.type, node.name, node.packageName))
+    const sql =
+      given?.trim() ||
+      (testId ? resultsFor(project).failingRowsSql(graph, testId) : null) ||
+      (node && previewSql(node.id, node.type, node.name, node.packageName))
     if (!sql) {
-      throw Object.assign(new Error('Only models, seeds, snapshots and sources hold rows to preview.'), {
-        code: 'invalid_params'
-      })
+      throw Object.assign(
+        new Error(testId ? 'dbt has not compiled this test yet: run it first.' : 'Only models, seeds, snapshots and sources hold rows to preview.'),
+        { code: 'invalid_params' }
+      )
     }
     const rows = Math.min(Math.max(Math.trunc(limit), 1), MAX_QUERY_ROWS)
     const args = ['show', '--inline', sql, '--limit', String(rows), '--output', 'json']
@@ -239,6 +251,42 @@ export default function activate(orca: OrcaWorkerApi): void {
       )
     })
     return { jobId, sql }
+  })
+
+  orca.panels.handle('quality.read', async ({ all, nodeId }) => {
+    const project = await loadProject(orca)
+    const results = resultsFor(project)
+    results.sync(project.graph)
+    return {
+      ...results.report(project.graph, { all, nodeId }, QUALITY_LIST_LIMIT),
+      running: testRuns.get(project.projectDir) ?? null
+    }
+  })
+
+  orca.panels.handle('quality.run', async (wanted) => {
+    const project = await loadProject(orca)
+    const { workspace, projectDir, graph } = project
+    if (testRuns.has(projectDir)) {
+      throw Object.assign(new Error('Tests are already running. Cancel them first.'), { code: 'invalid_params' })
+    }
+    const run = testArgs(graph, wanted)
+    if (!run) throw Object.assign(new Error('The manifest no longer has those tests: parse again.'), { code: 'invalid_params' })
+    const startedAt = Date.now()
+    const jobId = startJob(orca, workspace, projectDir, run.args, ({ jobId, run: done, error }) => {
+      testRuns.delete(projectDir)
+      const results = resultsFor(project)
+      results.sync(graph)
+      // A run that wrote run_results.json ran its tests, failing or not; one that did not
+      // stopped before them (a compile error, a missing profile).
+      const ran = results.last && Date.parse(results.last.at) >= startedAt - 1000 ? results.last.tests : null
+      orca.panels.post(
+        'quality.done',
+        ran !== null && !error ? { jobId, ok: true, ran } : { jobId, ok: false, ran: 0, error: error ?? dbtError(done!) }
+      )
+    })
+    const running = { jobId, label: run.label, startedAt }
+    testRuns.set(projectDir, running)
+    return running
   })
 
   orca.panels.handle('project.parse', async () => {
@@ -393,6 +441,16 @@ async function branchChanges(orca: OrcaWorkerApi): Promise<BranchChanges> {
     manifestStale: times.some((time) => time > manifestTime),
     command: buildCommand(graph, mapped.changed)
   }
+}
+
+/** The project's test results, read from its target folder once per worker. */
+function resultsFor({ projectDir, manifestPath }: Location): TestResults {
+  let results = testResults.get(projectDir)
+  if (!results) {
+    results = new TestResults(projectDir, dirname(manifestPath))
+    testResults.set(projectDir, results)
+  }
+  return results
 }
 
 async function loadProject(orca: OrcaWorkerApi): Promise<Project> {

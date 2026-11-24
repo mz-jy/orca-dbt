@@ -1,0 +1,6 @@
+seeds:
+  - name: payment_methods
+    description: The payment methods the tills accept.
+    columns:
+      - name: payment_method
+        data_tests: [unique, not_null]

@@ -1,30 +1,45 @@
 # dbt for Orca
 
+![The Quality pane, the lineage graph with failing nodes flagged, and the rows a failing test found](images/quality-light.webp)
+
 A data catalog and lineage viewer for the dbt project in your Orca workspace. It works with dbt
 v1 (dbt-core) and v2 (dbt Fusion), and with any warehouse your dbt profile connects to:
 Snowflake, ClickHouse, Postgres, DuckDB and the rest.
 
-One page, **dbt**, with three parts that move together:
+One page, **dbt**. A search box on top, a side pane (**Catalog**, **Changes** or **Quality**),
+the lineage graph in the middle and the node in hand on the right. They move together:
 
-- **Lineage graph**: the focused node's upstream and downstream, horizontal or vertical. Set the
-  depth, or draw exactly what a dbt selector selects. Click a node to see it below, double-click
-  to centre the lineage on it, use `+n` to reveal hidden neighbours, drag to pan, scroll to zoom.
-- **Catalog**: every model, source, seed, snapshot and exposure by folder, tag, schema, resource
-  type, package or owner. Search names, column names and descriptions, or type a dbt selector
-  (`+orders+ tag:finance,config.materialized:table --exclude path:models/legacy`) or pick one from
-  your `selectors.yml`. Picking a node draws its lineage.
-- **Model**: description (Markdown), tags, owner, meta, columns with their types and tests,
-  neighbours, and **Data**: preview rows or run SQL (`{{ ref() }}` works) on the warehouse.
-  **Environment…** shows and edits the variables queries run with (see below).
-- **± Changes**: what your branch changed since its base (committed, uncommitted and untracked),
+- **Search box**: type to search names, column names and descriptions; press ↵ to draw it as a
+  dbt selector (`+orders+ tag:finance,config.materialized:table --exclude path:models/legacy`),
+  or pick one from your `selectors.yml`. `/` or ⌘K jumps to it, Esc clears it.
+- **Lineage graph**: the focused node's upstream and downstream, horizontal or vertical, with
+  steppers for each depth. A chip in its corner says what it draws (a node's lineage, a selector,
+  or the branch's changes) and clears a selector. Click a node to see it, double-click to centre
+  the lineage on it, use `+n` to reveal hidden neighbours, drag to pan, scroll to zoom. Zoomed
+  out, nodes become dots in their type's colour (ringed when changed or failing) so a big graph
+  reads as a map; zoom in for the cards. **Group** draws the nodes in lanes by folder, tag,
+  schema, owner, package or any meta key (none by default); unconnected pieces tile into a grid.
+- **Catalog**: every model, source, seed, snapshot and exposure, A–Z or grouped by folder, tag,
+  schema, resource type, package, owner or a meta key. Picking a node draws its lineage.
+- **Changes**: what your branch changed since its base (committed, uncommitted and untracked),
   drawn with everything downstream of it, so a pull request's impact is one click away. Changed
   nodes are tagged in every graph: **A** new file, **M** SQL changed, **Y** YAML changed, **ƒ** a
-  macro it uses changed. The list shows the exposures (dashboards) affected and a
+  macro it uses changed. The pane shows the exposures (dashboards) affected and a
   `dbt build --select …` that builds and tests exactly the changes and what they feed.
+- **Quality**: the latest result of every data and unit test (from `target/run_results.json`,
+  so runs from a terminal count), problems first. Run them all, re-run the failing ones, query
+  the rows a test found, or draw the nodes with problems. Failing nodes are flagged everywhere.
+- **Details**: the node's type, relation and actions, then **Overview** (description in
+  Markdown, tags, owner, properties, meta, upstream and downstream), **Columns** with their
+  types and tests, **Tests** with their latest results, and **Data**: preview rows or run SQL
+  (`{{ ref() }}` works) on the warehouse. The environment button shows and edits the variables
+  queries run with (see below).
 
-In a narrow sidebar the graph sits above a Catalog/Model sheet you can resize by dragging the
-bar between them; widen the panel past 900 px and the three sit side by side. The page follows
-the workspace you are in.
+Colour is kept for meaning: blue for the node in hand and its lineage, violet for what the
+branch changed, green, amber and red for test results, and a small dot in each resource type's
+hue. In a narrow sidebar the graph sits above a sheet with one pane at a time (Details among
+them) that you resize by dragging its tab bar; widen the panel past 900 px and they sit side by
+side. The page follows Orca's light or dark theme and the workspace you are in.
 
 ## Install
 
@@ -71,7 +86,7 @@ What it asks for, and why:
   - runs in the project folder, where dbt looks for `profiles.yml` before `~/.dbt`.
 
   Snowflake with `authenticator: externalbrowser` opens your browser to sign in the first time.
-- **Environment…** (in Data, and as **Set X…** when dbt reports a missing variable) lists the
+- **Environment** (in Data, and as **Set X…** when dbt reports a missing variable) lists the
   variables the profile and `dbt_project.yml` read with `env_var()`, each **set**, **default** or
   **missing**; the variables in the env files, masked until shown; and a form to add, edit or
   delete them. Changes are written to the env file itself (the deepest `.env`, or the chosen
@@ -101,6 +116,19 @@ Not supported: workspaces on SSH or other Orca hosts (the plugin reads files on 
 computer), and selector methods that need run artifacts (`state:`, `result:`,
 `source_status:`) or select tests (`test_name:`, `test_type:`).
 
+## Try it on the demo project
+
+`demo/` is a small dbt project on DuckDB (a coffee shop: sources, staging, marts, an exposure,
+data and unit tests, a few of them failing on purpose). Build it with dbt-core (dbt Fusion's
+preview builds it too, but errors on its unit test and skips what depends on it):
+
+```sh
+uv venv && uv pip install dbt-core dbt-duckdb
+cd demo && ../.venv/bin/dbt build                # then open the folder in Orca
+```
+
+Open `demo` as a workspace (or set **dbt project folder** to `demo`) and pick **Quality**.
+
 ## Develop
 
 ```sh
@@ -121,6 +149,11 @@ orca plugin dev watch .    # loads this folder into Orca, streams logs, reloads 
 | `src/protocol.ts`            | the requests and events between the page and the worker            |
 | `ui/index.html`, `ui/app.ts` | the page: layout, state, and what each click does                  |
 | `ui/graph-view.ts`           | the lineage graph: dagre's layout drawn as SVG, pan, zoom          |
-| `ui/catalog-view.ts`         | the catalog tree, result lists and the branch's changes            |
-| `ui/model-view.ts`           | a node's docs, columns, neighbours and data                         |
+| `ui/catalog-view.ts`         | the catalog tree and the search and selector result lists          |
+| `ui/changes-view.ts`         | the branch's changes, what they reach, and the build command       |
+| `ui/quality-view.ts`         | test results: counts, problems by node, runs                       |
+| `ui/model-view.ts`           | the details pane: a node's docs, columns, tests and data            |
+| `ui/env-view.ts`             | the Environment dialog                                              |
+| `ui/dom.ts`, `ui/icons.ts`   | shared elements (buttons, marks, empty states) and inline icons     |
+| `ui/page.css`                | the stylesheet: Orca's theme variables, one hue per meaning         |
 | `vendor/`                    | `@dagrejs/dagre` 3.1.3 and `marked` 18.3 (MIT), vendored: plugin frames have no network |
