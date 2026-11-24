@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="page.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <input id="search" type="search" placeholder="Search models, columns, docs…" autocomplete="off" spellcheck="false" />
+      <div class="selector-row">
+        <input
+          id="selector"
+          type="text"
+          placeholder="dbt selector: +orders+ tag:finance --exclude …  (Enter)"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <select id="yaml" hidden title="YAML selectors from selectors.yml"></select>
+        <button id="clear-selector" type="button" title="Clear the selector" hidden>×</button>
+      </div>
+    </header>
+    <div id="status" class="status">Reading the dbt manifest…</div>
+    <main id="workspace" class="workspace sheet-catalog">
+      <section class="graph-area" aria-label="Lineage graph">
+        <svg id="svg">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" />
+            </marker>
+            <marker id="arrow-lit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" />
+            </marker>
+          </defs>
+          <g id="viewport">
+            <g id="edges"></g>
+            <g id="nodes"></g>
+          </g>
+        </svg>
+        <div id="empty" class="empty" hidden></div>
+        <div class="graph-controls">
+          <label title="Upstream levels">↑ <select id="up"></select></label>
+          <label title="Downstream levels">↓ <select id="down"></select></label>
+          <button id="orientation" type="button"></button>
+          <button id="fit" type="button" title="Fit the whole graph">Fit</button>
+        </div>
+      </section>
+      <div id="sheet-bar" class="sheet-bar" title="Drag to resize">
+        <button type="button" data-sheet="catalog">Catalog</button>
+        <button type="button" data-sheet="model">Model</button>
+        <span class="grip"></span>
+      </div>
+      <section id="explorer" class="explorer" aria-label="Catalog"></section>
+      <section id="details" class="details" aria-label="Model"></section>
+    </main>
+    <script type="module" src="app.ts"></script>
+  </body>
+</html>

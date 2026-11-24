@@ -1,0 +1,614 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.12.7",
+    "project_name": "shop",
+    "generated_at": "2026-11-24T09:48:58.971691Z"
+  },
+  "nodes": {
+    "model.shop.stg_customers": {
+      "database": "shop",
+      "schema": "main",
+      "name": "stg_customers",
+      "resource_type": "model",
+      "package_name": "shop",
+      "path": "staging/stg_customers.sql",
+      "original_file_path": "models/staging/stg_customers.sql",
+      "unique_id": "model.shop.stg_customers",
+      "fqn": [
+        "shop",
+        "staging",
+        "stg_customers"
+      ],
+      "alias": "stg_customers",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "9489ddf32bf45b5729d325b56c5aadfebc1db55b80b7a6ca472cd366d379278b"
+      },
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "schema": null,
+        "database": null,
+        "tags": [],
+        "meta": {},
+        "group": null,
+        "static_analysis": null,
+        "materialized": "view",
+        "incremental_strategy": null,
+        "batch_size": null,
+        "lookback": 1,
+        "begin": null,
+        "persist_docs": {},
+        "post-hook": [],
+        "pre-hook": [],
+        "quoting": {},
+        "column_types": {},
+        "full_refresh": null,
+        "unique_key": null,
+        "on_schema_change": "ignore",
+        "on_configuration_change": "apply",
+        "grants": {},
+        "packages": [],
+        "docs": {
+          "show": true,
+          "node_color": null
+        },
+        "contract": {
+          "enforced": false,
+          "alias_types": true
+        },
+        "event_time": null,
+        "concurrent_batches": null,
+        "access": "protected",
+        "freshness": null,
+        "on_error": null,
+        "latest_version_pointer": {
+          "enabled": null,
+          "alias": null
+        }
+      },
+      "tags": [],
+      "description": "",
+      "columns": {},
+      "meta": {},
+      "group": null,
+      "docs": {
+        "show": true,
+        "node_color": null
+      },
+      "patch_path": null,
+      "build_path": null,
+      "unrendered_config": {},
+      "created_at": 1795513731.9054348,
+      "relation_name": "\"shop\".\"main\".\"stg_customers\"",
+      "raw_code": "select 10 as customer_id, 'Ada' as name",
+      "doc_blocks": [],
+      "language": "sql",
+      "refs": [],
+      "sources": [],
+      "metrics": [],
+      "functions": [],
+      "depends_on": {
+        "macros": [],
+        "nodes": []
+      },
+      "compiled_path": null,
+      "contract": {
+        "enforced": false,
+        "alias_types": true,
+        "checksum": null
+      },
+      "access": "protected",
+      "constraints": [],
+      "version": null,
+      "latest_version": null,
+      "deprecation_date": null,
+      "primary_key": [],
+      "time_spine": null
+    },
+    "model.shop.stg_orders": {
+      "database": "shop",
+      "schema": "main",
+      "name": "stg_orders",
+      "resource_type": "model",
+      "package_name": "shop",
+      "path": "staging/stg_orders.sql",
+      "original_file_path": "models/staging/stg_orders.sql",
+      "unique_id": "model.shop.stg_orders",
+      "fqn": [
+        "shop",
+        "staging",
+        "stg_orders"
+      ],
+      "alias": "stg_orders",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "624d809fb6daabe462fe8e0666d5f01a9d3e0c6211c942feb07e2f286e11539e"
+      },
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "schema": null,
+        "database": null,
+        "tags": [],
+        "meta": {},
+        "group": null,
+        "static_analysis": null,
+        "materialized": "view",
+        "incremental_strategy": null,
+        "batch_size": null,
+        "lookback": 1,
+        "begin": null,
+        "persist_docs": {},
+        "post-hook": [],
+        "pre-hook": [],
+        "quoting": {},
+        "column_types": {},
+        "full_refresh": null,
+        "unique_key": null,
+        "on_schema_change": "ignore",
+        "on_configuration_change": "apply",
+        "grants": {},
+        "packages": [],
+        "docs": {
+          "show": true,
+          "node_color": null
+        },
+        "contract": {
+          "enforced": false,
+          "alias_types": true
+        },
+        "event_time": null,
+        "concurrent_batches": null,
+        "access": "protected",
+        "freshness": null,
+        "on_error": null,
+        "latest_version_pointer": {
+          "enabled": null,
+          "alias": null
+        }
+      },
+      "tags": [],
+      "description": "",
+      "columns": {},
+      "meta": {},
+      "group": null,
+      "docs": {
+        "show": true,
+        "node_color": null
+      },
+      "patch_path": null,
+      "build_path": null,
+      "unrendered_config": {},
+      "created_at": 1795513731.920819,
+      "relation_name": "\"shop\".\"main\".\"stg_orders\"",
+      "raw_code": "select 1 as order_id, 10 as customer_id, 5.5 as amount",
+      "doc_blocks": [],
+      "language": "sql",
+      "refs": [],
+      "sources": [],
+      "metrics": [],
+      "functions": [],
+      "depends_on": {
+        "macros": [],
+        "nodes": []
+      },
+      "compiled_path": null,
+      "contract": {
+        "enforced": false,
+        "alias_types": true,
+        "checksum": null
+      },
+      "access": "protected",
+      "constraints": [],
+      "version": null,
+      "latest_version": null,
+      "deprecation_date": null,
+      "primary_key": [],
+      "time_spine": null
+    },
+    "model.shop.orders": {
+      "database": "shop",
+      "schema": "main",
+      "name": "orders",
+      "resource_type": "model",
+      "package_name": "shop",
+      "path": "marts/orders.sql",
+      "original_file_path": "models/marts/orders.sql",
+      "unique_id": "model.shop.orders",
+      "fqn": [
+        "shop",
+        "marts",
+        "orders"
+      ],
+      "alias": "orders",
+      "checksum": {
+        "name": "sha256",
+        "checksum": "3eb4661a41decdf1ceef68080e9aeb6c62e6261bf8af3ea0c9498f0a5d91577c"
+      },
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "schema": null,
+        "database": null,
+        "tags": [
+          "mart"
+        ],
+        "meta": {
+          "owner": "data-team"
+        },
+        "group": null,
+        "static_analysis": null,
+        "materialized": "table",
+        "incremental_strategy": null,
+        "batch_size": null,
+        "lookback": 1,
+        "begin": null,
+        "persist_docs": {},
+        "post-hook": [],
+        "pre-hook": [],
+        "quoting": {},
+        "column_types": {},
+        "full_refresh": null,
+        "unique_key": null,
+        "on_schema_change": "ignore",
+        "on_configuration_change": "apply",
+        "grants": {},
+        "packages": [],
+        "docs": {
+          "show": true,
+          "node_color": null
+        },
+        "contract": {
+          "enforced": false,
+          "alias_types": true
+        },
+        "event_time": null,
+        "concurrent_batches": null,
+        "access": "protected",
+        "freshness": null,
+        "on_error": null,
+        "latest_version_pointer": {
+          "enabled": null,
+          "alias": null
+        }
+      },
+      "tags": [
+        "mart"
+      ],
+      "description": "Orders with **customers**.",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "description": "Primary key",
+          "meta": {},
+          "data_type": null,
+          "constraints": [],
+          "quote": null,
+          "config": {
+            "meta": {},
+            "tags": []
+          },
+          "tags": [],
+          "granularity": null,
+          "dimension": null,
+          "entity": null,
+          "doc_blocks": []
+        }
+      },
+      "meta": {
+        "owner": "data-team"
+      },
+      "group": null,
+      "docs": {
+        "show": true,
+        "node_color": null
+      },
+      "patch_path": "shop://models/marts/schema.yml",
+      "build_path": null,
+      "unrendered_config": {
+        "materialized": "table",
+        "tags": [
+          "mart"
+        ],
+        "meta": {
+          "owner": "data-team"
+        }
+      },
+      "created_at": 1795513732.001399,
+      "relation_name": "\"shop\".\"main\".\"orders\"",
+      "raw_code": "select o.*, c.name from {{ ref('stg_orders') }} o join {{ ref('stg_customers') }} c using (customer_id)",
+      "doc_blocks": [],
+      "language": "sql",
+      "refs": [
+        {
+          "name": "stg_orders",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "metrics": [],
+      "functions": [],
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.shop.stg_orders",
+          "model.shop.stg_customers"
+        ]
+      },
+      "compiled_path": null,
+      "contract": {
+        "enforced": false,
+        "alias_types": true,
+        "checksum": null
+      },
+      "access": "protected",
+      "constraints": [],
+      "version": null,
+      "latest_version": null,
+      "deprecation_date": null,
+      "primary_key": [
+        "order_id"
+      ],
+      "time_spine": null
+    },
+    "test.shop.unique_orders_order_id.fed79b3a6e": {
+      "database": "shop",
+      "schema": "main_dbt_test__audit",
+      "name": "unique_orders_order_id",
+      "resource_type": "test",
+      "package_name": "shop",
+      "path": "unique_orders_order_id.sql",
+      "original_file_path": "models/marts/schema.yml",
+      "unique_id": "test.shop.unique_orders_order_id.fed79b3a6e",
+      "fqn": [
+        "shop",
+        "marts",
+        "unique_orders_order_id"
+      ],
+      "alias": "unique_orders_order_id",
+      "checksum": {
+        "name": "none",
+        "checksum": ""
+      },
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "schema": "dbt_test__audit",
+        "database": null,
+        "tags": [],
+        "meta": {},
+        "group": null,
+        "static_analysis": null,
+        "materialized": "test",
+        "severity": "ERROR",
+        "store_failures": null,
+        "store_failures_as": null,
+        "sql_header": null,
+        "where": null,
+        "limit": null,
+        "fail_calc": "count(*)",
+        "warn_if": "!= 0",
+        "error_if": "!= 0"
+      },
+      "tags": [],
+      "description": "",
+      "columns": {},
+      "meta": {},
+      "group": null,
+      "docs": {
+        "show": true,
+        "node_color": null
+      },
+      "patch_path": null,
+      "build_path": null,
+      "unrendered_config": {},
+      "created_at": 1795513732.0467641,
+      "relation_name": null,
+      "raw_code": "{{ test_unique(**_dbt_generic_test_kwargs) }}",
+      "doc_blocks": [],
+      "language": "sql",
+      "refs": [
+        {
+          "name": "orders",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "metrics": [],
+      "functions": [],
+      "depends_on": {
+        "macros": [
+          "macro.dbt.test_unique"
+        ],
+        "nodes": [
+          "model.shop.orders"
+        ]
+      },
+      "compiled_path": null,
+      "contract": {
+        "enforced": false,
+        "alias_types": true,
+        "checksum": null
+      },
+      "column_name": "order_id",
+      "file_key_name": "models.orders",
+      "attached_node": "model.shop.orders",
+      "test_metadata": {
+        "name": "unique",
+        "kwargs": {
+          "column_name": "order_id",
+          "model": "{{ get_where_subquery(ref('orders')) }}"
+        },
+        "namespace": null
+      }
+    },
+    "test.shop.not_null_orders_order_id.cf6c17daed": {
+      "database": "shop",
+      "schema": "main_dbt_test__audit",
+      "name": "not_null_orders_order_id",
+      "resource_type": "test",
+      "package_name": "shop",
+      "path": "not_null_orders_order_id.sql",
+      "original_file_path": "models/marts/schema.yml",
+      "unique_id": "test.shop.not_null_orders_order_id.cf6c17daed",
+      "fqn": [
+        "shop",
+        "marts",
+        "not_null_orders_order_id"
+      ],
+      "alias": "not_null_orders_order_id",
+      "checksum": {
+        "name": "none",
+        "checksum": ""
+      },
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "schema": "dbt_test__audit",
+        "database": null,
+        "tags": [],
+        "meta": {},
+        "group": null,
+        "static_analysis": null,
+        "materialized": "test",
+        "severity": "ERROR",
+        "store_failures": null,
+        "store_failures_as": null,
+        "sql_header": null,
+        "where": null,
+        "limit": null,
+        "fail_calc": "count(*)",
+        "warn_if": "!= 0",
+        "error_if": "!= 0"
+      },
+      "tags": [],
+      "description": "",
+      "columns": {},
+      "meta": {},
+      "group": null,
+      "docs": {
+        "show": true,
+        "node_color": null
+      },
+      "patch_path": null,
+      "build_path": null,
+      "unrendered_config": {},
+      "created_at": 1795513732.048022,
+      "relation_name": null,
+      "raw_code": "{{ test_not_null(**_dbt_generic_test_kwargs) }}",
+      "doc_blocks": [],
+      "language": "sql",
+      "refs": [
+        {
+          "name": "orders",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "metrics": [],
+      "functions": [],
+      "depends_on": {
+        "macros": [
+          "macro.dbt.test_not_null"
+        ],
+        "nodes": [
+          "model.shop.orders"
+        ]
+      },
+      "compiled_path": null,
+      "contract": {
+        "enforced": false,
+        "alias_types": true,
+        "checksum": null
+      },
+      "column_name": "order_id",
+      "file_key_name": "models.orders",
+      "attached_node": "model.shop.orders",
+      "test_metadata": {
+        "name": "not_null",
+        "kwargs": {
+          "column_name": "order_id",
+          "model": "{{ get_where_subquery(ref('orders')) }}"
+        },
+        "namespace": null
+      }
+    }
+  },
+  "sources": {},
+  "exposures": {},
+  "metrics": {},
+  "semantic_models": {},
+  "saved_queries": {},
+  "parent_map": {
+    "model.shop.stg_customers": [],
+    "model.shop.stg_orders": [],
+    "model.shop.orders": [
+      "model.shop.stg_customers",
+      "model.shop.stg_orders"
+    ],
+    "test.shop.unique_orders_order_id.fed79b3a6e": [
+      "model.shop.orders"
+    ],
+    "test.shop.not_null_orders_order_id.cf6c17daed": [
+      "model.shop.orders"
+    ]
+  },
+  "child_map": {
+    "model.shop.stg_customers": [
+      "model.shop.orders"
+    ],
+    "model.shop.stg_orders": [
+      "model.shop.orders"
+    ],
+    "model.shop.orders": [
+      "test.shop.not_null_orders_order_id.cf6c17daed",
+      "test.shop.unique_orders_order_id.fed79b3a6e"
+    ],
+    "test.shop.unique_orders_order_id.fed79b3a6e": [],
+    "test.shop.not_null_orders_order_id.cf6c17daed": []
+  },
+  "selectors": {
+    "marts_only": {
+      "name": "marts_only",
+      "definition": {
+        "method": "tag",
+        "value": "mart"
+      }
+    },
+    "orders_lineage": {
+      "name": "orders_lineage",
+      "definition": {
+        "union": [
+          {
+            "parents": true,
+            "method": "fqn",
+            "value": "orders"
+          },
+          {
+            "method": "path",
+            "value": "models/staging",
+            "children": true
+          },
+          {
+            "exclude": [
+              {
+                "method": "fqn",
+                "value": "stg_customers"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

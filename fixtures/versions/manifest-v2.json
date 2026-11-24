@@ -1,0 +1,863 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "2.0.0-preview.120",
+    "project_name": "shop",
+    "generated_at": "2026-11-24T09:49:17.909849Z"
+  },
+  "nodes": {
+    "model.shop.inline": {
+      "resource_type": "model",
+      "unique_id": "model.shop.inline",
+      "database": "shop-v2",
+      "schema": "main",
+      "name": "inline",
+      "package_name": "shop",
+      "fqn": [
+        "shop",
+        "inline"
+      ],
+      "path": "inline_abc36de4.sql",
+      "original_file_path": "target/inline_abc36de4.sql",
+      "description": "",
+      "tags": [],
+      "meta": {},
+      "alias": "inline",
+      "relation_name": "\"main\".\"inline\"",
+      "compiled_path": "target/compiled/inline_abc36de4.sql",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "data_type": "integer",
+          "description": "",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "data_type": "integer",
+          "description": "",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        },
+        "amount": {
+          "name": "amount",
+          "data_type": "decimal(2, 1)",
+          "description": "",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        },
+        "name": {
+          "name": "name",
+          "data_type": "character varying(256)",
+          "description": "",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        }
+      },
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.shop.orders"
+        ],
+        "nodes_with_ref_location": [
+          [
+            "model.shop.orders",
+            {
+              "line": 1,
+              "col": 15,
+              "index": 14,
+              "file": "inline_abc36de4.sql",
+              "expanded": null
+            }
+          ]
+        ]
+      },
+      "refs": [
+        {
+          "name": "orders",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "functions": [],
+      "raw_code": "select * from {{ ref('orders') }}",
+      "compiled": true,
+      "compiled_code": "select * from \"main\".\"orders\"",
+      "unrendered_config": {},
+      "metrics": [],
+      "checksum": {
+        "name": "SHA256",
+        "checksum": "5898c35e1e611527add28e11c35a7d530f2fa6743c386e341a1d8379e8029b59"
+      },
+      "language": "sql",
+      "contract": {
+        "alias_types": true,
+        "enforced": false
+      },
+      "access": "protected",
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "database": null,
+        "schema": null,
+        "tags": null,
+        "catalog_name": null,
+        "meta": null,
+        "group": null,
+        "materialized": "inline",
+        "incremental_strategy": null,
+        "incremental_predicates": null,
+        "batch_size": null,
+        "lookback": null,
+        "begin": null,
+        "persist_docs": null,
+        "post_hook": null,
+        "pre_hook": null,
+        "quoting": {
+          "database": true,
+          "identifier": true,
+          "schema": true,
+          "snowflake_ignore_case": false
+        },
+        "column_types": null,
+        "full_refresh": null,
+        "unique_key": null,
+        "on_schema_change": null,
+        "on_configuration_change": null,
+        "+grants": {},
+        "packages": null,
+        "python_version": null,
+        "imports": null,
+        "secrets": null,
+        "external_access_integrations": null,
+        "use_anonymous_sproc": null,
+        "docs": null,
+        "contract": null,
+        "event_time": null,
+        "concurrent_batches": null,
+        "merge_update_columns": null,
+        "merge_exclude_columns": null,
+        "access": null,
+        "table_format": null,
+        "static_analysis": null,
+        "freshness": null,
+        "sql_header": null,
+        "location": null,
+        "predicates": null,
+        "submission_method": null,
+        "job_cluster_config": null,
+        "python_job_config": null,
+        "cluster_id": null,
+        "http_path": null,
+        "create_notebook": null,
+        "index_url": null,
+        "additional_libs": null,
+        "user_folder_for_python": null,
+        "sync": null,
+        "indexes": null,
+        "primary_key": null
+      },
+      "constraints": [],
+      "primary_key": []
+    },
+    "model.shop.orders": {
+      "resource_type": "model",
+      "unique_id": "model.shop.orders",
+      "database": "shop-v2",
+      "schema": "main",
+      "name": "orders",
+      "package_name": "shop",
+      "fqn": [
+        "shop",
+        "marts",
+        "orders"
+      ],
+      "path": "models/marts/orders.sql",
+      "original_file_path": "models/marts/orders.sql",
+      "patch_path": "models/marts/schema.yml",
+      "description": "Orders with **customers**.",
+      "tags": [
+        "mart"
+      ],
+      "meta": {
+        "owner": "data-team"
+      },
+      "alias": "orders",
+      "relation_name": "\"main\".\"orders\"",
+      "compiled_path": "target/compiled/models/marts/orders.sql",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "data_type": "integer",
+          "description": "Primary key",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "data_type": "integer",
+          "description": "",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        },
+        "amount": {
+          "name": "amount",
+          "data_type": "decimal(2, 1)",
+          "description": "",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        },
+        "name": {
+          "name": "name",
+          "data_type": "character varying(256)",
+          "description": "",
+          "constraints": [],
+          "meta": {},
+          "tags": [],
+          "config": {}
+        }
+      },
+      "depends_on": {
+        "macros": [],
+        "nodes": [
+          "model.shop.stg_orders",
+          "model.shop.stg_customers"
+        ],
+        "nodes_with_ref_location": [
+          [
+            "model.shop.stg_orders",
+            {
+              "line": 1,
+              "col": 25,
+              "index": 24,
+              "file": "models/marts/orders.sql",
+              "expanded": null
+            }
+          ],
+          [
+            "model.shop.stg_customers",
+            {
+              "line": 1,
+              "col": 56,
+              "index": 55,
+              "file": "models/marts/orders.sql",
+              "expanded": null
+            }
+          ]
+        ]
+      },
+      "refs": [
+        {
+          "name": "stg_orders",
+          "package": null,
+          "version": null
+        },
+        {
+          "name": "stg_customers",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "functions": [],
+      "raw_code": "select o.*, c.name from {{ ref('stg_orders') }} o join {{ ref('stg_customers') }} c using (customer_id)\n",
+      "compiled": true,
+      "compiled_code": "select o.*, c.name from \"main\".\"stg_orders\" o join \"main\".\"stg_customers\" c using (customer_id)",
+      "unrendered_config": {
+        "tags": [
+          "mart"
+        ]
+      },
+      "metrics": [],
+      "checksum": {
+        "name": "SHA256",
+        "checksum": "3eb4661a41decdf1ceef68080e9aeb6c62e6261bf8af3ea0c9498f0a5d91577c"
+      },
+      "language": "sql",
+      "contract": {
+        "alias_types": true,
+        "enforced": false
+      },
+      "access": "protected",
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "database": null,
+        "schema": null,
+        "tags": [
+          "mart"
+        ],
+        "catalog_name": null,
+        "meta": {
+          "owner": "data-team"
+        },
+        "group": null,
+        "materialized": "table",
+        "incremental_strategy": null,
+        "incremental_predicates": null,
+        "batch_size": null,
+        "lookback": null,
+        "begin": null,
+        "persist_docs": null,
+        "post_hook": null,
+        "pre_hook": null,
+        "quoting": {
+          "database": true,
+          "identifier": true,
+          "schema": true,
+          "snowflake_ignore_case": false
+        },
+        "column_types": null,
+        "full_refresh": null,
+        "unique_key": null,
+        "on_schema_change": null,
+        "on_configuration_change": null,
+        "+grants": {},
+        "packages": null,
+        "python_version": null,
+        "imports": null,
+        "secrets": null,
+        "external_access_integrations": null,
+        "use_anonymous_sproc": null,
+        "docs": null,
+        "contract": null,
+        "event_time": null,
+        "concurrent_batches": null,
+        "merge_update_columns": null,
+        "merge_exclude_columns": null,
+        "access": null,
+        "table_format": null,
+        "static_analysis": null,
+        "freshness": null,
+        "sql_header": null,
+        "location": null,
+        "predicates": null,
+        "submission_method": null,
+        "job_cluster_config": null,
+        "python_job_config": null,
+        "cluster_id": null,
+        "http_path": null,
+        "create_notebook": null,
+        "index_url": null,
+        "additional_libs": null,
+        "user_folder_for_python": null,
+        "sync": null,
+        "indexes": null,
+        "primary_key": null
+      },
+      "constraints": [],
+      "primary_key": [
+        "order_id"
+      ]
+    },
+    "model.shop.stg_customers": {
+      "resource_type": "model",
+      "unique_id": "model.shop.stg_customers",
+      "database": "shop-v2",
+      "schema": "main",
+      "name": "stg_customers",
+      "package_name": "shop",
+      "fqn": [
+        "shop",
+        "staging",
+        "stg_customers"
+      ],
+      "path": "models/staging/stg_customers.sql",
+      "original_file_path": "models/staging/stg_customers.sql",
+      "description": "",
+      "tags": [],
+      "meta": {},
+      "alias": "stg_customers",
+      "relation_name": "\"main\".\"stg_customers\"",
+      "compiled_path": "target/compiled/models/staging/stg_customers.sql",
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [],
+        "nodes_with_ref_location": []
+      },
+      "refs": [],
+      "sources": [],
+      "functions": [],
+      "raw_code": "select 10 as customer_id, 'Ada' as name\n",
+      "compiled": true,
+      "compiled_code": "select 10 as customer_id, 'Ada' as name",
+      "unrendered_config": {},
+      "metrics": [],
+      "checksum": {
+        "name": "SHA256",
+        "checksum": "9489ddf32bf45b5729d325b56c5aadfebc1db55b80b7a6ca472cd366d379278b"
+      },
+      "language": "sql",
+      "contract": {
+        "alias_types": true,
+        "enforced": false
+      },
+      "access": "protected",
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "database": null,
+        "schema": null,
+        "tags": null,
+        "catalog_name": null,
+        "meta": null,
+        "group": null,
+        "materialized": "view",
+        "incremental_strategy": null,
+        "incremental_predicates": null,
+        "batch_size": null,
+        "lookback": null,
+        "begin": null,
+        "persist_docs": null,
+        "post_hook": null,
+        "pre_hook": null,
+        "quoting": {
+          "database": true,
+          "identifier": true,
+          "schema": true,
+          "snowflake_ignore_case": false
+        },
+        "column_types": null,
+        "full_refresh": null,
+        "unique_key": null,
+        "on_schema_change": null,
+        "on_configuration_change": null,
+        "+grants": {},
+        "packages": null,
+        "python_version": null,
+        "imports": null,
+        "secrets": null,
+        "external_access_integrations": null,
+        "use_anonymous_sproc": null,
+        "docs": null,
+        "contract": null,
+        "event_time": null,
+        "concurrent_batches": null,
+        "merge_update_columns": null,
+        "merge_exclude_columns": null,
+        "access": null,
+        "table_format": null,
+        "static_analysis": null,
+        "freshness": null,
+        "sql_header": null,
+        "location": null,
+        "predicates": null,
+        "submission_method": null,
+        "job_cluster_config": null,
+        "python_job_config": null,
+        "cluster_id": null,
+        "http_path": null,
+        "create_notebook": null,
+        "index_url": null,
+        "additional_libs": null,
+        "user_folder_for_python": null,
+        "sync": null,
+        "indexes": null,
+        "primary_key": null
+      },
+      "constraints": [],
+      "primary_key": []
+    },
+    "model.shop.stg_orders": {
+      "resource_type": "model",
+      "unique_id": "model.shop.stg_orders",
+      "database": "shop-v2",
+      "schema": "main",
+      "name": "stg_orders",
+      "package_name": "shop",
+      "fqn": [
+        "shop",
+        "staging",
+        "stg_orders"
+      ],
+      "path": "models/staging/stg_orders.sql",
+      "original_file_path": "models/staging/stg_orders.sql",
+      "description": "",
+      "tags": [],
+      "meta": {},
+      "alias": "stg_orders",
+      "relation_name": "\"main\".\"stg_orders\"",
+      "compiled_path": "target/compiled/models/staging/stg_orders.sql",
+      "columns": {},
+      "depends_on": {
+        "macros": [],
+        "nodes": [],
+        "nodes_with_ref_location": []
+      },
+      "refs": [],
+      "sources": [],
+      "functions": [],
+      "raw_code": "select 1 as order_id, 10 as customer_id, 5.5 as amount\n",
+      "compiled": true,
+      "compiled_code": "select 1 as order_id, 10 as customer_id, 5.5 as amount",
+      "unrendered_config": {},
+      "metrics": [],
+      "checksum": {
+        "name": "SHA256",
+        "checksum": "624d809fb6daabe462fe8e0666d5f01a9d3e0c6211c942feb07e2f286e11539e"
+      },
+      "language": "sql",
+      "contract": {
+        "alias_types": true,
+        "enforced": false
+      },
+      "access": "protected",
+      "config": {
+        "enabled": true,
+        "alias": null,
+        "database": null,
+        "schema": null,
+        "tags": null,
+        "catalog_name": null,
+        "meta": null,
+        "group": null,
+        "materialized": "view",
+        "incremental_strategy": null,
+        "incremental_predicates": null,
+        "batch_size": null,
+        "lookback": null,
+        "begin": null,
+        "persist_docs": null,
+        "post_hook": null,
+        "pre_hook": null,
+        "quoting": {
+          "database": true,
+          "identifier": true,
+          "schema": true,
+          "snowflake_ignore_case": false
+        },
+        "column_types": null,
+        "full_refresh": null,
+        "unique_key": null,
+        "on_schema_change": null,
+        "on_configuration_change": null,
+        "+grants": {},
+        "packages": null,
+        "python_version": null,
+        "imports": null,
+        "secrets": null,
+        "external_access_integrations": null,
+        "use_anonymous_sproc": null,
+        "docs": null,
+        "contract": null,
+        "event_time": null,
+        "concurrent_batches": null,
+        "merge_update_columns": null,
+        "merge_exclude_columns": null,
+        "access": null,
+        "table_format": null,
+        "static_analysis": null,
+        "freshness": null,
+        "sql_header": null,
+        "location": null,
+        "predicates": null,
+        "submission_method": null,
+        "job_cluster_config": null,
+        "python_job_config": null,
+        "cluster_id": null,
+        "http_path": null,
+        "create_notebook": null,
+        "index_url": null,
+        "additional_libs": null,
+        "user_folder_for_python": null,
+        "sync": null,
+        "indexes": null,
+        "primary_key": null
+      },
+      "constraints": [],
+      "primary_key": []
+    },
+    "test.shop.not_null_orders_order_id.cf6c17daed": {
+      "resource_type": "test",
+      "unique_id": "test.shop.not_null_orders_order_id.cf6c17daed",
+      "database": "shop-v2",
+      "schema": "main_dbt_test__audit",
+      "name": "not_null_orders_order_id",
+      "package_name": "shop",
+      "fqn": [
+        "shop",
+        "marts",
+        "not_null_orders_order_id"
+      ],
+      "path": "generic_tests/not_null_orders_order_id.sql",
+      "original_file_path": "models/marts/schema.yml",
+      "patch_path": "models/marts/schema.yml",
+      "description": "",
+      "tags": [],
+      "meta": {},
+      "alias": "not_null_orders_order_id",
+      "compiled_path": "target/compiled/generic_tests/not_null_orders_order_id.sql",
+      "columns": {},
+      "depends_on": {
+        "macros": [
+          "macro.dbt.test_not_null"
+        ],
+        "nodes": [
+          "model.shop.orders"
+        ],
+        "nodes_with_ref_location": [
+          [
+            "model.shop.orders",
+            {
+              "line": 1,
+              "col": 67,
+              "index": 66,
+              "file": "generic_tests/not_null_orders_order_id.sql",
+              "expanded": null
+            }
+          ]
+        ]
+      },
+      "refs": [
+        {
+          "name": "orders",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "functions": [],
+      "raw_code": "{{ test_not_null(**_dbt_generic_test_kwargs) }}{{ config(alias=\"not_null_orders_order_id\") }}",
+      "compiled": true,
+      "compiled_code": "\n    \n    \n\n\n\nselect order_id\nfrom \"main\".\"orders\"\nwhere order_id is null\n\n\n",
+      "unrendered_config": {},
+      "metrics": [],
+      "checksum": {
+        "name": "",
+        "checksum": ""
+      },
+      "language": "sql",
+      "contract": {
+        "alias_types": true,
+        "enforced": false
+      },
+      "config": {
+        "alias": null,
+        "database": null,
+        "schema": "dbt_test__audit",
+        "enabled": true,
+        "error_if": "!= 0",
+        "fail_calc": "count(*)",
+        "full_refresh": null,
+        "group": null,
+        "limit": null,
+        "meta": null,
+        "severity": null,
+        "store_failures": null,
+        "store_failures_as": null,
+        "tags": [],
+        "warn_if": "!= 0",
+        "quoting": {
+          "database": true,
+          "identifier": true,
+          "schema": true,
+          "snowflake_ignore_case": false
+        },
+        "static_analysis": null,
+        "where": null,
+        "materialized": null,
+        "indexes": null,
+        "primary_key": null
+      },
+      "column_name": "order_id",
+      "attached_node": "model.shop.orders",
+      "test_metadata": {
+        "name": "not_null",
+        "kwargs": {
+          "column_name": "order_id",
+          "model": "{{ get_where_subquery(ref('orders')) }}"
+        }
+      },
+      "generated_sql_file": "target/generic_tests/not_null_orders_order_id.sql"
+    },
+    "test.shop.unique_orders_order_id.fed79b3a6e": {
+      "resource_type": "test",
+      "unique_id": "test.shop.unique_orders_order_id.fed79b3a6e",
+      "database": "shop-v2",
+      "schema": "main_dbt_test__audit",
+      "name": "unique_orders_order_id",
+      "package_name": "shop",
+      "fqn": [
+        "shop",
+        "marts",
+        "unique_orders_order_id"
+      ],
+      "path": "generic_tests/unique_orders_order_id.sql",
+      "original_file_path": "models/marts/schema.yml",
+      "patch_path": "models/marts/schema.yml",
+      "description": "",
+      "tags": [],
+      "meta": {},
+      "alias": "unique_orders_order_id",
+      "compiled_path": "target/compiled/generic_tests/unique_orders_order_id.sql",
+      "columns": {},
+      "depends_on": {
+        "macros": [
+          "macro.dbt.test_unique"
+        ],
+        "nodes": [
+          "model.shop.orders"
+        ],
+        "nodes_with_ref_location": [
+          [
+            "model.shop.orders",
+            {
+              "line": 1,
+              "col": 65,
+              "index": 64,
+              "file": "generic_tests/unique_orders_order_id.sql",
+              "expanded": null
+            }
+          ]
+        ]
+      },
+      "refs": [
+        {
+          "name": "orders",
+          "package": null,
+          "version": null
+        }
+      ],
+      "sources": [],
+      "functions": [],
+      "raw_code": "{{ test_unique(**_dbt_generic_test_kwargs) }}{{ config(alias=\"unique_orders_order_id\") }}",
+      "compiled": true,
+      "compiled_code": "\n    \n    \n\nselect\n    order_id as unique_field,\n    count(*) as n_records\n\nfrom \"main\".\"orders\"\nwhere order_id is not null\ngroup by order_id\nhaving count(*) > 1\n\n\n",
+      "unrendered_config": {},
+      "metrics": [],
+      "checksum": {
+        "name": "",
+        "checksum": ""
+      },
+      "language": "sql",
+      "contract": {
+        "alias_types": true,
+        "enforced": false
+      },
+      "config": {
+        "alias": null,
+        "database": null,
+        "schema": "dbt_test__audit",
+        "enabled": true,
+        "error_if": "!= 0",
+        "fail_calc": "count(*)",
+        "full_refresh": null,
+        "group": null,
+        "limit": null,
+        "meta": null,
+        "severity": null,
+        "store_failures": null,
+        "store_failures_as": null,
+        "tags": [],
+        "warn_if": "!= 0",
+        "quoting": {
+          "database": true,
+          "identifier": true,
+          "schema": true,
+          "snowflake_ignore_case": false
+        },
+        "static_analysis": null,
+        "where": null,
+        "materialized": null,
+        "indexes": null,
+        "primary_key": null
+      },
+      "column_name": "order_id",
+      "attached_node": "model.shop.orders",
+      "test_metadata": {
+        "name": "unique",
+        "kwargs": {
+          "column_name": "order_id",
+          "model": "{{ get_where_subquery(ref('orders')) }}"
+        }
+      },
+      "generated_sql_file": "target/generic_tests/unique_orders_order_id.sql"
+    }
+  },
+  "sources": {},
+  "exposures": {},
+  "metrics": {},
+  "semantic_models": {},
+  "saved_queries": {},
+  "parent_map": {
+    "model.shop.inline": [
+      "model.shop.orders"
+    ],
+    "model.shop.orders": [
+      "model.shop.stg_orders",
+      "model.shop.stg_customers"
+    ],
+    "model.shop.stg_customers": [],
+    "model.shop.stg_orders": [],
+    "test.shop.not_null_orders_order_id.cf6c17daed": [
+      "model.shop.orders"
+    ],
+    "test.shop.unique_orders_order_id.fed79b3a6e": [
+      "model.shop.orders"
+    ]
+  },
+  "child_map": {
+    "model.shop.orders": [
+      "model.shop.inline",
+      "test.shop.not_null_orders_order_id.cf6c17daed",
+      "test.shop.unique_orders_order_id.fed79b3a6e"
+    ],
+    "model.shop.stg_customers": [
+      "model.shop.orders"
+    ],
+    "model.shop.stg_orders": [
+      "model.shop.orders"
+    ]
+  },
+  "selectors": {
+    "marts_only": {
+      "name": "marts_only",
+      "description": "",
+      "method": "tag",
+      "value": "mart"
+    },
+    "orders_lineage": {
+      "name": "orders_lineage",
+      "description": "",
+      "intersection": [
+        {
+          "union": [
+            {
+              "method": "fqn",
+              "value": "orders",
+              "parents": true
+            },
+            {
+              "method": "path",
+              "value": "models/staging",
+              "children": true
+            }
+          ]
+        },
+        {
+          "exclude": {
+            "method": "fqn",
+            "value": "stg_customers"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,633 @@
+/* Colours come from Orca's theme through the --orca-* frame variables. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+/* Classes below set display; keep the hidden attribute winning. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--orca-background);
+  color: var(--orca-foreground);
+  font: 12px var(--orca-font-sans, system-ui, sans-serif);
+}
+
+input,
+select,
+button,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--orca-background);
+  border: 1px solid var(--orca-input);
+  border-radius: 5px;
+  padding: 4px 6px;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 2px solid var(--orca-ring);
+  outline-offset: -1px;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--orca-accent);
+  color: var(--orca-accent-foreground);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--orca-primary);
+  color: var(--orca-primary-foreground);
+  border-color: transparent;
+}
+
+code,
+pre,
+textarea {
+  font-family: var(--orca-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.muted {
+  color: var(--orca-muted-foreground);
+}
+
+.small {
+  font-size: 11px;
+}
+
+.swatch {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+/* ---------- Toolbar and status ---------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--orca-border);
+}
+
+.toolbar #search {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.selector-row {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 6px;
+  min-width: 0;
+}
+
+.selector-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--orca-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.selector-row select {
+  max-width: 40%;
+}
+
+.status {
+  padding: 4px 8px;
+  color: var(--orca-muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status.warning {
+  color: var(--orca-destructive);
+}
+
+/* ---------- Layout: graph above a Catalog/Model sheet; three columns when wide ---------- */
+
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(140px, 1fr) auto var(--sheet-height, 45%);
+  grid-template-areas: 'graph' 'bar' 'sheet';
+}
+
+.graph-area {
+  grid-area: graph;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sheet-bar {
+  grid-area: bar;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--orca-border);
+  border-bottom: 1px solid var(--orca-border);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.sheet-bar button {
+  border-color: transparent;
+  background: transparent;
+  font-weight: 600;
+}
+
+.sheet-bar button.active {
+  background: var(--orca-secondary);
+  color: var(--orca-secondary-foreground);
+}
+
+.sheet-bar .grip {
+  flex: 1;
+  height: 4px;
+  margin-left: 8px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg, var(--orca-border) 0 6px, transparent 6px 10px);
+}
+
+.explorer,
+.details {
+  grid-area: sheet;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.workspace.sheet-catalog .details,
+.workspace.sheet-model .explorer {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .toolbar #search {
+    flex: 1 1 280px;
+  }
+
+  .selector-row {
+    flex: 2 1 380px;
+  }
+
+  .workspace {
+    grid-template-columns: 280px minmax(0, 1fr) 400px;
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: 'explorer graph details';
+    border-top: 1px solid var(--orca-border);
+  }
+
+  .sheet-bar {
+    display: none;
+  }
+
+  /* Both sheets show side by side; as specific as the narrow rules that hide one. */
+  .workspace.sheet-catalog .details,
+  .workspace.sheet-model .explorer {
+    display: block;
+  }
+
+  .explorer {
+    grid-area: explorer;
+    border-right: 1px solid var(--orca-border);
+  }
+
+  .details {
+    grid-area: details;
+    border-left: 1px solid var(--orca-border);
+  }
+}
+
+/* ---------- Graph ---------- */
+
+svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  user-select: none;
+}
+
+svg.panning {
+  cursor: grabbing;
+}
+
+.graph-controls {
+  position: absolute;
+  user-select: none;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--orca-background) 85%, transparent);
+}
+
+.graph-controls label {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  color: var(--orca-muted-foreground);
+}
+
+.graph-controls select,
+.graph-controls button {
+  padding: 2px 4px;
+}
+
+#arrow path {
+  fill: var(--orca-muted-foreground);
+}
+
+#arrow-lit path {
+  fill: var(--orca-primary);
+}
+
+.edge {
+  fill: none;
+  stroke: var(--orca-muted-foreground);
+  stroke-opacity: 0.5;
+  stroke-width: 1.3;
+  marker-end: url(#arrow);
+}
+
+.edge.lit {
+  stroke: var(--orca-primary);
+  stroke-opacity: 1;
+  stroke-width: 2;
+  marker-end: url(#arrow-lit);
+}
+
+.node {
+  cursor: pointer;
+}
+
+.node .box {
+  fill: var(--orca-card);
+  stroke: var(--orca-border);
+  stroke-width: 1;
+}
+
+.node:hover .box {
+  stroke: var(--orca-ring);
+}
+
+.node.focus .box {
+  stroke: var(--orca-primary);
+  stroke-width: 2.5;
+}
+
+.node.selected .box {
+  stroke: var(--orca-ring);
+  stroke-width: 2;
+  stroke-dasharray: 4 2;
+}
+
+.node .name {
+  fill: var(--orca-card-foreground);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.node .meta {
+  fill: var(--orca-muted-foreground);
+  font-size: 10.5px;
+}
+
+.badge circle {
+  fill: var(--orca-secondary);
+  stroke: var(--orca-border);
+}
+
+.badge text {
+  fill: var(--orca-secondary-foreground);
+  font-size: 9.5px;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.badge:hover circle {
+  fill: var(--orca-primary);
+}
+
+.badge:hover text {
+  fill: var(--orca-primary-foreground);
+}
+
+.dim {
+  opacity: 0.18;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--orca-muted-foreground);
+}
+
+/* ---------- Catalog ---------- */
+
+.explorer-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.explorer-head label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--orca-muted-foreground);
+}
+
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree .tree {
+  padding-left: 14px;
+}
+
+.row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+}
+
+.row .label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row .count {
+  color: var(--orca-muted-foreground);
+  font-size: 11px;
+}
+
+.row .caret {
+  width: 10px;
+  color: var(--orca-muted-foreground);
+}
+
+.row.current {
+  background: var(--orca-secondary);
+  color: var(--orca-secondary-foreground);
+  font-weight: 600;
+}
+
+.tree li.muted {
+  padding: 3px 6px;
+}
+
+.message p {
+  margin: 0 0 8px;
+}
+
+.message.warning p {
+  color: var(--orca-destructive);
+}
+
+/* ---------- Model ---------- */
+
+.model-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--orca-secondary);
+  color: var(--orca-secondary-foreground);
+  font-size: 11px;
+}
+
+.tags,
+.actions,
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+button.tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+button.chip {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.description {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.description a {
+  color: var(--orca-primary);
+}
+
+.description pre {
+  overflow: auto;
+  padding: 6px;
+  border-radius: 4px;
+  background: var(--orca-muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: 8px 0;
+}
+
+.facts dt {
+  color: var(--orca-muted-foreground);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.section {
+  margin-top: 8px;
+  border-top: 1px solid var(--orca-border);
+  padding-top: 6px;
+}
+
+.section summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 2px 0;
+}
+
+.table-wrap {
+  overflow: auto;
+  max-height: 320px;
+  border: 1px solid var(--orca-border);
+  border-radius: 4px;
+}
+
+.table-wrap.results {
+  max-height: 420px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+
+th,
+td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--orca-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: var(--orca-card);
+  white-space: nowrap;
+}
+
+.results td {
+  white-space: nowrap;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+td.null {
+  color: var(--orca-muted-foreground);
+  font-style: italic;
+}
+
+.pill {
+  display: inline-block;
+  margin: 1px 2px 1px 0;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--orca-secondary);
+  color: var(--orca-secondary-foreground);
+}
+
+.columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.columns li {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--orca-border);
+}
+
+.column-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.column-head code {
+  font-weight: 600;
+}
+
+.column-description {
+  margin-top: 2px;
+  color: var(--orca-muted-foreground);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.neighbours {
+  margin: 6px 0;
+}
+
+.data textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+}
+
+.data .running::before {
+  content: '⏳ ';
+}
+
+pre.error {
+  overflow: auto;
+  max-height: 200px;
+  padding: 6px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  color: var(--orca-destructive);
+  background: color-mix(in srgb, var(--orca-destructive) 8%, transparent);
+}

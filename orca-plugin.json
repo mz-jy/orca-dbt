@@ -1,0 +1,60 @@
+{
+  "manifestVersion": 2,
+  "id": "dbt-lineage",
+  "name": "dbt Catalog & Lineage",
+  "version": "0.3.0",
+  "description": "A data catalog for the dbt project in your workspace: explore models by folder, tag, schema or owner, read their docs, columns and tests, select with dbt selectors, see visual lineage, and preview data through the project's own dbt (v1 dbt-core or v2 Fusion; Snowflake, ClickHouse, Postgres and any other adapter).",
+  "author": {
+    "name": "mz-jy",
+    "url": "https://github.com/mz-jy"
+  },
+  "repository": "https://github.com/mz-jy/orca-dbt",
+  "homepage": "https://github.com/mz-jy/orca-dbt",
+  "license": "MIT",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "dbt-catalog",
+        "title": "dbt Catalog & Lineage",
+        "icon": "database",
+        "entry": "ui/index.html",
+        "ui": "html"
+      }
+    ],
+    "settings": [
+      {
+        "key": "projectDir",
+        "title": "dbt project folder",
+        "description": "Folder holding dbt_project.yml, relative to the workspace root. Leave empty to find it automatically.",
+        "type": "string",
+        "default": "",
+        "placeholder": "analytics/dbt"
+      },
+      {
+        "key": "dbtCommand",
+        "title": "dbt command",
+        "description": "How to run dbt for data previews and parsing. Leave empty to use the project's .venv/bin/dbt, else dbt on PATH (dbt-core v1 or dbt Fusion v2).",
+        "type": "string",
+        "default": "",
+        "placeholder": "uv run dbt"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "workspace:write"
+    },
+    {
+      "kind": "settings:own"
+    }
+  ]
+}
