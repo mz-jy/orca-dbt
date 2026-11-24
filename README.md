@@ -25,15 +25,15 @@ the workspace you are in.
 You need Orca 1.4.248 or newer. Nothing else: the plugin has no build step and no dependencies
 to install.
 
-In Orca's plugin directory: [dbt Catalog & Lineage](https://orca.dev/plugins/mz-jy.dbt-lineage?catalog=community).
+In Orca's plugin directory: [dbt Catalog & Lineage](https://orca.dev/plugins/mz-jy.dbt-catalog?catalog=community).
 Or from a terminal:
 
 ```sh
-orca plugin install mz-jy/orca-dbt
+orca plugin install mz-jy/orca-dbt-catalog
 
 # or from a local clone
-git clone https://github.com/mz-jy/orca-dbt.git
-orca plugin install ./orca-dbt
+git clone https://github.com/mz-jy/orca-dbt-catalog.git
+orca plugin install ./orca-dbt-catalog
 ```
 
 Orca lists the access the plugin asks for and prints the same command with `--approve <code>`;
