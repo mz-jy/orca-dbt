@@ -173,12 +173,36 @@ function showProblem(status: Extract<ProjectStatus, { ok: false }>): void {
     no_manifest: 'No manifest yet',
     unreadable: "Can't read the manifest"
   }
-  const parse = status.reason === 'no_manifest' ? button('Run dbt parse', () => void runParse(), { variant: 'primary', icon: 'play' }) : null
-  graphView.show(null, emptyState('database', titles[status.reason], status.message, parse, 'warning'))
+  const action =
+    status.reason === 'no_manifest'
+      ? button('Run dbt parse', () => void runParse(), { variant: 'primary', icon: 'play' })
+      : status.reason === 'no_project'
+        ? projectFolderField()
+        : null
+  graphView.show(null, emptyState('database', titles[status.reason], status.message, action, 'warning'))
   modelView.show(null, false)
   catalogView.showMessage(titles[status.reason], undefined, 'warning')
   changesView.show({ ok: false, message: status.message })
   qualityView.showMessage(titles[status.reason], undefined, 'warning')
+}
+
+/** Where to type the dbt project folder when it was not found. */
+function projectFolderField(): HTMLElement {
+  const path = el('input', { type: 'text', title: 'Folder holding dbt_project.yml, relative to the workspace root or absolute' })
+  path.placeholder = 'analytics/dbt'
+  path.spellcheck = false
+  const choose = async () => {
+    const folder = path.value.trim()
+    if (!folder) return path.focus()
+    try {
+      await orca.plugin.request('project.choose', { folder }, { timeoutMs: 120_000 })
+      await load()
+    } catch (cause) {
+      report(cause)
+    }
+  }
+  path.addEventListener('keydown', (event) => event.key === 'Enter' && void choose())
+  return el('div', { class: 'field-row project-folder' }, path, button('Use', () => void choose(), { variant: 'primary', small: true }))
 }
 
 async function loadGraph(): Promise<void> {

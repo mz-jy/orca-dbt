@@ -77,22 +77,11 @@ const testResults = new Map<string, TestResults>()
 const testRuns = new Map<string, QualityRun>()
 
 export default function activate(orca: OrcaWorkerApi): void {
-  orca.panels.handle('lineage.status', async (): Promise<ProjectStatus> => {
-    try {
-      const { workspace, projectDir, graph } = await loadProject(orca)
-      return {
-        ok: true,
-        projectName: graph.projectName,
-        workspaceName: workspace.project ? `${workspace.project} · ${workspace.name}` : workspace.name,
-        projectDir: relative(workspace.path, projectDir),
-        generatedAt: graph.generatedAt,
-        dbtVersion: graph.dbtVersion,
-        nodeCount: graph.nodes.size
-      }
-    } catch (error) {
-      if (error instanceof ProjectError) return { ok: false, reason: error.reason, message: error.message }
-      throw error
-    }
+  orca.panels.handle('lineage.status', () => projectStatus(orca))
+
+  orca.panels.handle('project.choose', async ({ folder }) => {
+    await orca.settings.set('projectDir', folder.trim())
+    return projectStatus(orca)
   })
 
   orca.panels.handle('lineage.search', async ({ query, limit }) => {
@@ -360,6 +349,24 @@ function startJob(
   return jobId
 }
 
+async function projectStatus(orca: OrcaWorkerApi): Promise<ProjectStatus> {
+  try {
+    const { workspace, projectDir, graph } = await loadProject(orca)
+    return {
+      ok: true,
+      projectName: graph.projectName,
+      workspaceName: workspace.project ? `${workspace.project} · ${workspace.name}` : workspace.name,
+      projectDir: relative(workspace.path, projectDir),
+      generatedAt: graph.generatedAt,
+      dbtVersion: graph.dbtVersion,
+      nodeCount: graph.nodes.size
+    }
+  } catch (error) {
+    if (error instanceof ProjectError) return { ok: false, reason: error.reason, message: error.message }
+    throw error
+  }
+}
+
 /** The focused workspace and its dbt project folder, without reading the manifest. */
 async function locateProject(orca: OrcaWorkerApi): Promise<Location> {
   const context = await orca.host.call('workspace.readContext')
@@ -382,8 +389,8 @@ async function locateProject(orca: OrcaWorkerApi): Promise<Location> {
     throw new ProjectError(
       'no_project',
       configured
-        ? `No dbt_project.yml in "${configured}". Fix the project folder in this plugin's settings.`
-        : "No dbt_project.yml within three folders of the workspace root. Set the project folder in this plugin's settings."
+        ? `No dbt_project.yml in "${configured}". Fix the project folder here or in this plugin's settings.`
+        : "No dbt_project.yml within three folders of the workspace root. Set the project folder here or in this plugin's settings."
     )
   }
   return { workspace, projectDir, manifestPath: manifestPathFor(projectDir) }

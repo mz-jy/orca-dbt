@@ -72,7 +72,8 @@ What it asks for, and why:
 ## How it finds your project
 
 - **Project**: the shallowest `dbt_project.yml` within three folders of the workspace root, or
-  the folder in the **dbt project folder** setting.
+  the folder in the **dbt project folder** setting. When none is found, the panel asks for the
+  folder and saves it to that setting.
 - **Manifest**: `<target-path>/manifest.json` (and `catalog.json`, for warehouse column types,
   when `dbt docs generate` has written it). No manifest yet? The panel offers **Run dbt parse**.
 - **Queries** run `dbt show` with your project's own dbt, so they use your profile, adapter and
