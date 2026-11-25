@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { selectorTerm, summarize, type Graph, type TestNode } from './graph'
 import type { QualityFlag, QualityReport, TestResult, TestStatus } from './protocol'
+import type { LoggedTest } from './runner'
 
 type StoredResult = {
   status: TestStatus
@@ -111,6 +112,28 @@ export class TestResults {
     }
     this.last = { at, tests }
     if (tests > 0) {
+      writeFileSync(join(this.targetDir, STORE_FILE), JSON.stringify({ merged: this.merged, results: Object.fromEntries(this.results) }))
+    }
+  }
+
+  /**
+   * Takes from a run's own log the outcomes run_results.json records differently: when a hook
+   * fails after the tests, Fusion writes every test as a "Compilation Error".
+   */
+  correct(logged: Map<string, LoggedTest>): void {
+    let changed = false
+    for (const [id, test] of logged) {
+      const status = testStatus(test.status)
+      const stored = this.results.get(id)
+      if (!status || !stored || (stored.status === status && !test.message)) continue
+      changed = true
+      const message = test.message ? test.message.slice(0, MAX_MESSAGE) : null
+      this.results.set(
+        id,
+        stored.status === status ? { ...stored, message } : { status, failures: test.failures, message, ms: test.ms, at: stored.at }
+      )
+    }
+    if (changed) {
       writeFileSync(join(this.targetDir, STORE_FILE), JSON.stringify({ merged: this.merged, results: Object.fromEntries(this.results) }))
     }
   }

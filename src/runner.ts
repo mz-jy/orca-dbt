@@ -74,9 +74,22 @@ export function runDbt(
 
 type LogLine = {
   info?: { name?: string; level?: string; msg?: string }
-  /** ShowNode: the rows as JSON text; v2 also names the columns, in order. */
-  data?: { preview?: string; columns?: string[] }
+  /**
+   * ShowNode: the rows as JSON text; v2 also names the columns, in order. LogTestResult: one
+   * test's outcome. An error line names its test in node_info.
+   */
+  data?: {
+    preview?: string
+    columns?: string[]
+    status?: string
+    num_failures?: number
+    execution_time?: number
+    node_info?: { unique_id?: string }
+  }
 }
+
+/** One test's outcome as a run logged it. */
+export type LoggedTest = { status: string; failures: number | null; ms: number | null; message: string | null }
 
 function logLines(result: DbtResult): LogLine[] {
   return result.lines.flatMap((line) => {
@@ -100,6 +113,26 @@ export function dbtError(result: DbtResult): string {
     .slice(-20)
     .join('\n')
   return plain || `dbt exited with code ${result.code}.`
+}
+
+/** Each test's outcome from a `dbt test --log-format json` run, by unique id, with its error. */
+export function loggedTests(result: DbtResult): Map<string, LoggedTest> {
+  const tests = new Map<string, LoggedTest>()
+  const errors = new Map<string, string>()
+  for (const { info, data } of logLines(result)) {
+    const id = data?.node_info?.unique_id
+    if (!id) continue
+    if (info?.name === 'LogTestResult' && data.status) {
+      tests.set(id, {
+        status: data.status,
+        failures: typeof data.num_failures === 'number' ? data.num_failures : null,
+        ms: typeof data.execution_time === 'number' ? Math.round(data.execution_time * 1000) : null,
+        message: null
+      })
+    } else if (info?.level === 'error' && info.msg) errors.set(id, info.msg.trim())
+  }
+  for (const [id, test] of tests) test.message = errors.get(id) ?? null
+  return tests
 }
 
 /** The rows of a `dbt show --output json --log-format json` run, from its ShowNode event. */

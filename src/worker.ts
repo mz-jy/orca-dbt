@@ -36,7 +36,7 @@ import { branchDiff, GitError } from './git'
 import { findProjectDir, manifestPathFor } from './project'
 import type { BranchChanges, DbtEngine, EnvState, ProjectProblem, ProjectStatus, QualityRun } from './protocol'
 import { testArgs, TestResults } from './quality'
-import { dbtCommand, dbtError, parseDbtVersion, runDbt, showRows, type DbtResult } from './runner'
+import { dbtCommand, dbtError, loggedTests, parseDbtVersion, runDbt, showRows, type DbtResult } from './runner'
 import { select, SelectorError, yamlSelectors } from './selector'
 
 type Workspace = { id: string; name: string; path: string; project?: string | null; hostId: string | null }
@@ -265,6 +265,7 @@ export default function activate(orca: OrcaWorkerApi): void {
       testRuns.delete(projectDir)
       const results = resultsFor(project)
       results.sync(graph)
+      if (done) results.correct(loggedTests(done))
       // A run that wrote run_results.json ran its tests, failing or not; one that did not
       // stopped before them (a compile error, a missing profile).
       const ran = results.last && Date.parse(results.last.at) >= startedAt - 1000 ? results.last.tests : null
