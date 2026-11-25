@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { assert, test } from 'orca/testing'
 import { buildGraph, type RawManifest } from './graph'
 import { testArgs, TestResults } from './quality'
+import { loggedTests } from './runner'
 
 const manifest: RawManifest = {
   metadata: { project_name: 'shop' },
@@ -102,6 +103,56 @@ test('keeps every test’s latest result across runs, from dbt-core and Fusion',
     assert.deepEqual(
       reread.report(graph, { nodeId: 'model.shop.orders' }, 100).tests.map((result) => `${result.status}:${result.label}`),
       ['error:totals', 'fail:not_null', 'pass:unique']
+    )
+  } finally {
+    rmSync(project, { recursive: true, force: true })
+  }
+})
+
+test('takes test outcomes from the log when a failed hook made Fusion record them all as errors', () => {
+  const project = mkdtempSync(join(tmpdir(), 'orca-dbt-quality-'))
+  const target = join(project, 'target')
+  try {
+    mkdirSync(target, { recursive: true })
+    const graph = buildGraph(manifest)
+    const compilationError = { status: 'error', message: 'Compilation Error', failures: null, execution_time: 0 }
+    writeFileSync(
+      join(target, 'run_results.json'),
+      runResults('2026-01-05T10:00:00Z', [
+        { unique_id: 'test.shop.not_null_orders_id.1', ...compilationError },
+        { unique_id: 'test.shop.unique_orders_id.2', ...compilationError }
+      ])
+    )
+    const results = new TestResults(project, target)
+    results.sync(graph)
+    const line = (name: string, level: string, msg: string, data: object) => JSON.stringify({ info: { name, level, msg }, data })
+    results.correct(
+      loggedTests({
+        code: 1,
+        stderr: '',
+        lines: [
+          line('LogTestResult', 'info', 'Passed', {
+            node_info: { unique_id: 'test.shop.not_null_orders_id.1' },
+            status: 'pass',
+            num_failures: 0,
+            execution_time: 3.5
+          }),
+          line('DbDriverFailed', 'error', 'Error 404: Not found: Table orders', { node_info: { unique_id: 'test.shop.unique_orders_id.2' } }),
+          line('LogTestResult', 'info', 'Failed', { node_info: { unique_id: 'test.shop.unique_orders_id.2' }, status: 'error', execution_time: 4.9 }),
+          line('DbDriverFailed', 'error', 'Error 403: Access Denied', {})
+        ]
+      })
+    )
+    assert.deepEqual(
+      new TestResults(project, target)
+        .report(graph, { all: true }, 100)
+        .tests.map((result) => [result.label, result.status, result.failures, result.ms, result.message]),
+      [
+        ['unique', 'error', null, 0, 'Error 404: Not found: Table orders'],
+        ['not_null', 'pass', 0, 3500, null],
+        ['assert_customers_named', null, null, null, null],
+        ['totals', null, null, null, null]
+      ]
     )
   } finally {
     rmSync(project, { recursive: true, force: true })
