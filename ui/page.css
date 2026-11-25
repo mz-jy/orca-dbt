@@ -780,6 +780,15 @@ button:focus-visible {
   margin-top: 8px;
 }
 
+.empty-state .project-folder {
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.empty-state .project-folder .btn {
+  margin-top: 0;
+}
+
 .callout {
   display: flex;
   gap: 8px;

@@ -233,5 +233,7 @@ test('says why there is no lineage', async () => {
   const misconfigured = await mountWorker(main, { host: fixtureHost({ settings: { projectDir: 'analytics/models' } }) })
   const status = await misconfigured.request('lineage.status')
   assert.equal(status.ok ? null : status.reason, 'no_project')
+  assert.equal((await misconfigured.request('project.choose', { folder: ' analytics ' })).ok, true)
+  assert.equal((await misconfigured.request('lineage.status')).ok, true)
   await misconfigured.deactivate()
 })

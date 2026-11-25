@@ -242,6 +242,8 @@ declare module 'orca' {
     'query.cancel': { input: { jobId: string }; output: { cancelled: boolean } }
     /** Runs `dbt parse` to write target/manifest.json; the result arrives as `parse.done`. */
     'project.parse': { output: { jobId: string } }
+    /** Sets the dbt project folder (workspace-relative or absolute); '' finds it automatically. */
+    'project.choose': { input: { folder: string }; output: ProjectStatus }
     /** Which dbt queries run with, and whether it is dbt-core (v1) or Fusion (v2). */
     'query.engine': { output: DbtEngine }
     /** The branch's changes against its base (committed, uncommitted and untracked). */
