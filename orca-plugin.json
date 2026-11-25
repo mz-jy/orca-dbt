@@ -2,7 +2,7 @@
   "manifestVersion": 2,
   "id": "dbt",
   "name": "dbt for Orca",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "A data catalog for the dbt project in your workspace: explore models by folder, tag, schema or owner, read their docs, columns and tests, select with dbt selectors, see visual lineage, run tests and track data quality (failing tests flagged on every node, with the rows they found), check a pull request's impact (changed models and everything downstream), and preview data through the project's own dbt (v1 dbt-core or v2 Fusion; Snowflake, ClickHouse, Postgres and any other adapter).",
   "author": {
     "name": "mz-jy",
