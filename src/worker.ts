@@ -72,6 +72,11 @@ const QUERY_ENV = { DBT_WRITE_JSON: 'false', DBT_POPULATE_CACHE: 'false' }
 const V2_PARSER_ENV = { DBT_ENGINE_USE_V2_PARSER: 'true' }
 /** Project folders the v2 parser failed on: they parse with dbt-core's own until a restart. */
 const v2ParserBroken = new Set<string>()
+/**
+ * Per project folder, when the dbt runs queued to write target/ (all but previews) are done:
+ * two at once interleave their writes and leave a manifest.json no one can read.
+ */
+const artifactWriters = new Map<string, Promise<void>>()
 /** Long enough for a warehouse to wake up and for a person to finish an SSO sign-in. */
 const JOB_TIMEOUT_MS = 10 * 60_000
 
@@ -243,7 +248,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     }
     const rows = Math.min(Math.max(Math.trunc(limit), 1), MAX_QUERY_ROWS)
     const args = ['show', '--inline', sql, '--limit', String(rows), '--output', 'json']
-    const jobId = startJob(orca, workspace, projectDir, args, QUERY_ENV, ({ jobId, ms, run, error }) => {
+    const jobId = startJob(orca, workspace, projectDir, args, 'query', ({ jobId, ms, run, error }) => {
       const shown = run?.code === 0 ? showRows(run) : null
       orca.panels.post(
         'query.done',
@@ -272,7 +277,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const run = testArgs(graph, wanted)
     if (!run) throw Object.assign(new Error('The manifest no longer has those tests: parse again.'), { code: 'invalid_params' })
     const startedAt = Date.now()
-    const jobId = startJob(orca, workspace, projectDir, run.args, {}, ({ jobId, run: done, error }) => {
+    const jobId = startJob(orca, workspace, projectDir, run.args, 'artifacts', ({ jobId, run: done, error }) => {
       testRuns.delete(projectDir)
       const results = resultsFor(project)
       results.sync(graph)
@@ -292,7 +297,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   orca.panels.handle('project.parse', async () => {
     const { workspace, projectDir } = await locateProject(orca)
-    const jobId = startJob(orca, workspace, projectDir, ['parse'], {}, ({ jobId, run, error }) => {
+    const jobId = startJob(orca, workspace, projectDir, ['parse'], 'artifacts', ({ jobId, run, error }) => {
       orca.panels.post(
         'parse.done',
         run?.code === 0 ? { jobId, ok: true } : { jobId, ok: false, error: error ?? dbtError(run!) }
@@ -316,17 +321,19 @@ export function deactivate(): void {
 type JobOutcome = { jobId: string; ms: number; run?: DbtResult; error?: string }
 
 /**
- * Runs `dbt <args>` in the background with JSON logs and `env` over the project's environment,
- * and hands `settle` the outcome. With the v2 parser setting on, parses with it unless it failed
- * on the project before; a run it fails is repeated with dbt-core's own parser. Answers the job
- * id at once: a warehouse query can outlast a panel request's timeout.
+ * Runs `dbt <args>` in the background with JSON logs and hands `settle` the outcome. A query
+ * (`dbt show`) runs the dbt command and writes nothing to target/; an artifacts run (tests,
+ * parse) runs the parse and test command when set (a wrapper such as `just dbt`) and waits for
+ * the project's previous one. With the v2 parser setting on, parses with it unless it failed on
+ * the project before; a run it fails is repeated with dbt-core's own parser. Answers the job id
+ * at once: a warehouse query can outlast a panel request's timeout.
  */
 function startJob(
   orca: OrcaWorkerApi,
   workspace: Workspace,
   projectDir: string,
   args: string[],
-  env: Record<string, string>,
+  kind: 'query' | 'artifacts',
   settle: (outcome: JobOutcome) => void
 ): string {
   const jobId = randomUUID()
@@ -336,12 +343,22 @@ function startJob(
   const started = Date.now()
   void (async () => {
     let outcome: JobOutcome
+    let release = () => {}
     try {
-      const command = dbtCommand(workspace.path, projectDir, await stringSetting(orca, 'dbtCommand'))
+      if (kind === 'artifacts') {
+        const previous = artifactWriters.get(projectDir) ?? Promise.resolve()
+        const done = previous.then(() => new Promise<void>((resolve) => (release = resolve)))
+        artifactWriters.set(projectDir, done)
+        void done.then(() => artifactWriters.get(projectDir) === done && artifactWriters.delete(projectDir))
+        await untilDone(previous, controller.signal)
+      }
+      const wrapper = kind === 'artifacts' ? await stringSetting(orca, 'parseTestCommand') : ''
+      const command = dbtCommand(workspace.path, projectDir, wrapper || (await stringSetting(orca, 'dbtCommand')))
       const v2 = (await orca.settings.get('useV2Parser')) === true && !v2ParserBroken.has(projectDir)
       orca.log(`job ${jobId}: ${command.join(' ')} ${args[0]} in ${projectDir}${v2 ? ' (v2 parser)' : ''}`)
       const dbtArgs = [...args, '--log-format', 'json']
-      const jobEnv = { ...dbtEnvironment(workspace.path, projectDir, await stringSetting(orca, 'envFile')), ...env }
+      const projectEnv = dbtEnvironment(workspace.path, projectDir, await stringSetting(orca, 'envFile'))
+      const jobEnv = kind === 'query' ? { ...projectEnv, ...QUERY_ENV } : projectEnv
       const options = { cwd: projectDir, signal: controller.signal }
       let run = await runDbt(command, dbtArgs, { ...options, env: v2 ? { ...jobEnv, ...V2_PARSER_ENV } : jobEnv })
       if (v2 && v2ParserFailed(run)) {
@@ -361,12 +378,26 @@ function startJob(
           : String(error)
       outcome = { jobId, ms, error: message }
     } finally {
+      release()
       clearTimeout(timer)
       jobs.delete(jobId)
     }
     settle(outcome)
   })()
   return jobId
+}
+
+/** Waits for `promise`, or rejects when `signal` aborts first. */
+function untilDone(promise: Promise<void>, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason)
+    if (signal.aborted) return abort()
+    signal.addEventListener('abort', abort, { once: true })
+    void promise.then(() => {
+      signal.removeEventListener('abort', abort)
+      resolve()
+    })
+  })
 }
 
 async function projectStatus(orca: OrcaWorkerApi): Promise<ProjectStatus> {
@@ -417,7 +448,10 @@ async function locateProject(orca: OrcaWorkerApi): Promise<Location> {
 }
 
 /** A string setting the person may have left empty (auto-detection): '' then. */
-async function stringSetting(orca: OrcaWorkerApi, key: 'projectDir' | 'dbtCommand' | 'baseBranch' | 'envFile'): Promise<string> {
+async function stringSetting(
+  orca: OrcaWorkerApi,
+  key: 'projectDir' | 'dbtCommand' | 'parseTestCommand' | 'baseBranch' | 'envFile'
+): Promise<string> {
   const value = await orca.settings.get(key)
   return typeof value === 'string' ? value.trim() : ''
 }

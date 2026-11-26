@@ -1,7 +1,13 @@
 #!/bin/sh
 # Stands in for dbt in src/worker.test.ts, answering the way dbt v2 (Fusion) does: `show`
-# echoes FAKE_GREETING (from fixtures/workspace/.env) and the folder it runs in.
+# echoes FAKE_GREETING (from fixtures/workspace/.env) and the folder it runs in. `wrapped`
+# stands in for a wrapper such as `just dbt`: it says so, then runs the rest as dbt.
 case "$1" in
+  wrapped)
+    shift
+    echo '{"info":{"name":"Generic","level":"error","msg":"through the wrapper"}}'
+    exec sh "$0" "$@"
+    ;;
   --version) echo "dbt-fusion 2.0.0-test" ;;
   show)
     printf '{"info":{"name":"ShowNode","level":"info"},"data":{"columns":["greeting","folder"],"preview":"[{\\"greeting\\":\\"%s\\",\\"folder\\":\\"%s\\"}]"}}\n' "$FAKE_GREETING" "$(basename "$PWD")"

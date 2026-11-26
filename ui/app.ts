@@ -173,8 +173,9 @@ function showProblem(status: Extract<ProjectStatus, { ok: false }>): void {
     no_manifest: 'No manifest yet',
     unreadable: "Can't read the manifest"
   }
+  // dbt rewrites a manifest it left half-written (two runs writing it at once) on its next parse.
   const action =
-    status.reason === 'no_manifest'
+    status.reason === 'no_manifest' || status.reason === 'unreadable'
       ? button('Run dbt parse', () => void runParse(), { variant: 'primary', icon: 'play' })
       : status.reason === 'no_project'
         ? projectFolderField()

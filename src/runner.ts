@@ -11,7 +11,10 @@ import type { DbtEngine, QueryCell } from './protocol'
 
 export type DbtResult = { code: number | null; lines: string[]; stderr: string }
 
-/** Where dbt installers put `dbt`, for an Orca started without the login shell's PATH. */
+/**
+ * Where dbt installers, Homebrew (just) and uv put commands, added to the PATH dbt and its
+ * wrappers run with: an Orca started from the Dock lacks the login shell's PATH.
+ */
 const COMMON_BIN_DIRS = [join(homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin']
 
 /** Rows past this many bytes of JSON are dropped: a panel post carries at most 256 KiB. */
@@ -52,9 +55,10 @@ export function runDbt(
   options: { cwd: string; env: Record<string, string>; signal: AbortSignal }
 ): Promise<DbtResult> {
   return new Promise((resolve, reject) => {
+    // spawn looks the command up on the PATH it is given.
     const child = spawn(command[0], [...command.slice(1), ...args], {
       cwd: options.cwd,
-      env: options.env,
+      env: { ...options.env, PATH: [options.env.PATH, ...COMMON_BIN_DIRS].filter(Boolean).join(delimiter) },
       signal: options.signal,
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -65,7 +69,7 @@ export function runDbt(
     child.on('error', (error: NodeJS.ErrnoException) => {
       if (error.name === 'AbortError') reject(error)
       else if (error.code === 'ENOENT') {
-        reject(new Error(`Could not run "${command[0]}". Install dbt in the project's .venv, or set the dbt command in this plugin's settings.`))
+        reject(new Error(`Could not run "${command[0]}". Install dbt in the project's .venv, or set the dbt command (or the command for parse and tests) in this plugin's settings.`))
       } else reject(error)
     })
     child.on('close', (code) => resolve({ code, lines: stdout.split('\n'), stderr }))

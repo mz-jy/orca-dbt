@@ -80,7 +80,11 @@ What it asks for, and why:
   credentials. The plugin
   - uses the nearest `.venv/bin/dbt` (project folder up to the workspace root), else `dbt` on
     `PATH`, `~/.local/bin`, `/opt/homebrew/bin` or `/usr/local/bin`; set **dbt command** (such as
-    `uv run dbt` or `dbtf`) to choose;
+    `uv run dbt` or `dbtf`) to choose. Parse and test runs use **Command for parse and tests**
+    when set, with dbt's arguments added at the end (such as `just dbt`); it runs without a
+    terminal, so it must not ask questions. Previews always use the dbt command, since a wrapper
+    can split their SQL apart. Parse and test runs on one project take turns: two runs writing
+    `target/manifest.json` at once leave it unreadable (the panel then offers **Run dbt parse**);
   - loads every `.env` from the workspace root down to the project, as `just` with
     `dotenv-load` does, so `env_var()` in `profiles.yml` resolves; set **Env file** to read one
     file instead (`.env.local`, `secrets/prod.env`, …);

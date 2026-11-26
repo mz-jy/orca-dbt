@@ -33,7 +33,10 @@ async function posted(worker: { posts: readonly { event: string; payload?: unkno
 }
 
 function fixtureHost(
-  options: { settings?: { projectDir: string; dbtCommand?: string }; context?: typeof context | null } = {}
+  options: {
+    settings?: { projectDir: string; dbtCommand?: string; parseTestCommand?: string }
+    context?: typeof context | null
+  } = {}
 ) {
   return mockHost({
     settings: options.settings ?? { projectDir: '' },
@@ -166,8 +169,9 @@ test('finds the nested project and answers lineage without tests', async () => {
   await worker.deactivate()
 })
 
-test('queries through the project dbt, with its .env, in the project folder', async () => {
-  const worker = await mountWorker(main, { host: fixtureHost({ settings: { projectDir: '', dbtCommand: fakeDbt } }) })
+test('queries through the dbt command and parses through the wrapper, with the .env, in the project folder', async () => {
+  const settings = { projectDir: '', dbtCommand: fakeDbt, parseTestCommand: `${fakeDbt} wrapped` }
+  const worker = await mountWorker(main, { host: fixtureHost({ settings }) })
   assert.deepEqual(await worker.request('query.engine'), {
     command: fakeDbt,
     flavor: 'fusion',
@@ -185,12 +189,12 @@ test('queries through the project dbt, with its .env, in the project folder', as
     truncated: false
   })
 
-  // dbt v2 can fail a parse; its error log line is what the panel shows.
+  // Parse runs through the wrapper; dbt v2 can fail it, and its error log lines are what the panel shows.
   const parse = await worker.request('project.parse')
   assert.deepEqual(await posted(worker, 'parse.done'), {
     jobId: parse.jobId,
     ok: false,
-    error: 'error: dbt1060: Ignored unexpected key'
+    error: 'through the wrapper\nerror: dbt1060: Ignored unexpected key'
   })
   await worker.deactivate()
 })

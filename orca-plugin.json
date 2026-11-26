@@ -39,10 +39,18 @@
       {
         "key": "dbtCommand",
         "title": "dbt command",
-        "description": "How to run dbt for data previews and parsing. Leave empty to use the project's .venv/bin/dbt, else dbt on PATH (dbt-core v1 or dbt Fusion v2).",
+        "description": "How to run dbt for data previews, and for parse and tests unless the command below is set. Leave empty to use the project's .venv/bin/dbt, else dbt on PATH (dbt-core v1 or dbt Fusion v2).",
         "type": "string",
         "default": "",
         "placeholder": "uv run dbt"
+      },
+      {
+        "key": "parseTestCommand",
+        "title": "Command for parse and tests",
+        "description": "Runs dbt parse and test runs, with dbt's arguments added at the end, such as a just recipe (just dbt). It runs in the dbt project folder without a terminal, so it must not ask questions. Leave empty to use the dbt command. Previews always use the dbt command: a wrapper can split their SQL apart.",
+        "type": "string",
+        "default": "",
+        "placeholder": "just dbt"
       },
       {
         "key": "baseBranch",
