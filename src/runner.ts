@@ -81,6 +81,7 @@ type LogLine = {
   data?: {
     preview?: string
     columns?: string[]
+    /** LogTestResult: passed, failed, …; V2ParserEnd: success or failure. */
     status?: string
     num_failures?: number
     execution_time?: number
@@ -133,6 +134,11 @@ export function loggedTests(result: DbtResult): Map<string, LoggedTest> {
   }
   for (const [id, test] of tests) test.message = errors.get(id) ?? null
   return tests
+}
+
+/** Whether dbt-core's v2 parser ran and failed (it logs V2ParserEnd with status failure). */
+export function v2ParserFailed(result: DbtResult): boolean {
+  return logLines(result).some((line) => line.info?.name === 'V2ParserEnd' && line.data?.status === 'failure')
 }
 
 /** The rows of a `dbt show --output json --log-format json` run, from its ShowNode event. */

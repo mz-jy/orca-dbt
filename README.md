@@ -84,9 +84,20 @@ What it asks for, and why:
   - loads every `.env` from the workspace root down to the project, as `just` with
     `dotenv-load` does, so `env_var()` in `profiles.yml` resolves; set **Env file** to read one
     file instead (`.env.local`, `secrets/prod.env`, …);
-  - runs in the project folder, where dbt looks for `profiles.yml` before `~/.dbt`.
+  - runs in the project folder, where dbt looks for `profiles.yml` before `~/.dbt`;
+  - skips writing `target/` artifacts and the adapter's schema cache for queries
+    (`DBT_WRITE_JSON=false`, `DBT_POPULATE_CACHE=false`): on a large project they cost more than
+    the query itself. Tests and parse still write `manifest.json` and `run_results.json`;
+  - with **Use dbt-core's v2 parser** on, sets `DBT_ENGINE_USE_V2_PARSER=true` (dbt-core 1.12+,
+    which then parses with the Rust `dbt-core-experimental-parser`). It reparses
+    the whole project every run and deletes `target/partial_parse.msgpack`, so it pays off when
+    dbt-core's own parser would reparse in full anyway. When it fails on the project, the run is
+    repeated with dbt-core's own parser, which that project keeps until Orca restarts.
 
   Snowflake with `authenticator: externalbrowser` opens your browser to sign in the first time.
+  dbt-core reparses the whole project (a minute or more on a large one) whenever the profile's
+  resolved connection changes, such as an env variable that picks the database, or when another
+  dbt run used a different environment.
 - **Environment** (in Data, and as **Set X…** when dbt reports a missing variable) lists the
   variables the profile and `dbt_project.yml` read with `env_var()`, each **set**, **default** or
   **missing**; the variables in the env files, masked until shown; and a form to add, edit or

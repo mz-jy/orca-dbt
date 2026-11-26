@@ -36,7 +36,7 @@ import { branchDiff, GitError } from './git'
 import { findProjectDir, manifestPathFor } from './project'
 import type { BranchChanges, DbtEngine, EnvState, ProjectProblem, ProjectStatus, QualityRun } from './protocol'
 import { testArgs, TestResults } from './quality'
-import { dbtCommand, dbtError, loggedTests, parseDbtVersion, runDbt, showRows, type DbtResult } from './runner'
+import { dbtCommand, dbtError, loggedTests, parseDbtVersion, runDbt, showRows, v2ParserFailed, type DbtResult } from './runner'
 import { select, SelectorError, yamlSelectors } from './selector'
 
 type Workspace = { id: string; name: string; path: string; project?: string | null; hostId: string | null }
@@ -61,6 +61,17 @@ const GRAPH_NODE_LIMIT = 400
 /** Nodes one explorer level lists; a Tree draws at most 5000 items. */
 const CATALOG_LEVEL_LIMIT = 1000
 const MAX_QUERY_ROWS = 1000
+/**
+ * dbt-core settings for `dbt show`: no manifest.json, graph.gpickle or run_results.json (on a
+ * large project writing them costs more than the query), and no listing of every schema the
+ * project builds into (an inline query reads none of it). Variables, not flags, so dbt Fusion,
+ * which may not know the flags, still runs.
+ */
+const QUERY_ENV = { DBT_WRITE_JSON: 'false', DBT_POPULATE_CACHE: 'false' }
+/** Turns on dbt-core's v2 parser (1.12+); older dbt-core has no such variable. */
+const V2_PARSER_ENV = { DBT_ENGINE_USE_V2_PARSER: 'true' }
+/** Project folders the v2 parser failed on: they parse with dbt-core's own until a restart. */
+const v2ParserBroken = new Set<string>()
 /** Long enough for a warehouse to wake up and for a person to finish an SSO sign-in. */
 const JOB_TIMEOUT_MS = 10 * 60_000
 
@@ -232,7 +243,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     }
     const rows = Math.min(Math.max(Math.trunc(limit), 1), MAX_QUERY_ROWS)
     const args = ['show', '--inline', sql, '--limit', String(rows), '--output', 'json']
-    const jobId = startJob(orca, workspace, projectDir, args, ({ jobId, ms, run, error }) => {
+    const jobId = startJob(orca, workspace, projectDir, args, QUERY_ENV, ({ jobId, ms, run, error }) => {
       const shown = run?.code === 0 ? showRows(run) : null
       orca.panels.post(
         'query.done',
@@ -261,7 +272,7 @@ export default function activate(orca: OrcaWorkerApi): void {
     const run = testArgs(graph, wanted)
     if (!run) throw Object.assign(new Error('The manifest no longer has those tests: parse again.'), { code: 'invalid_params' })
     const startedAt = Date.now()
-    const jobId = startJob(orca, workspace, projectDir, run.args, ({ jobId, run: done, error }) => {
+    const jobId = startJob(orca, workspace, projectDir, run.args, {}, ({ jobId, run: done, error }) => {
       testRuns.delete(projectDir)
       const results = resultsFor(project)
       results.sync(graph)
@@ -281,7 +292,7 @@ export default function activate(orca: OrcaWorkerApi): void {
 
   orca.panels.handle('project.parse', async () => {
     const { workspace, projectDir } = await locateProject(orca)
-    const jobId = startJob(orca, workspace, projectDir, ['parse'], ({ jobId, run, error }) => {
+    const jobId = startJob(orca, workspace, projectDir, ['parse'], {}, ({ jobId, run, error }) => {
       orca.panels.post(
         'parse.done',
         run?.code === 0 ? { jobId, ok: true } : { jobId, ok: false, error: error ?? dbtError(run!) }
@@ -305,14 +316,17 @@ export function deactivate(): void {
 type JobOutcome = { jobId: string; ms: number; run?: DbtResult; error?: string }
 
 /**
- * Runs `dbt <args>` in the background with JSON logs and hands `settle` the outcome. Answers the
- * job id at once: a warehouse query can outlast a panel request's timeout.
+ * Runs `dbt <args>` in the background with JSON logs and `env` over the project's environment,
+ * and hands `settle` the outcome. With the v2 parser setting on, parses with it unless it failed
+ * on the project before; a run it fails is repeated with dbt-core's own parser. Answers the job
+ * id at once: a warehouse query can outlast a panel request's timeout.
  */
 function startJob(
   orca: OrcaWorkerApi,
   workspace: Workspace,
   projectDir: string,
   args: string[],
+  env: Record<string, string>,
   settle: (outcome: JobOutcome) => void
 ): string {
   const jobId = randomUUID()
@@ -324,12 +338,17 @@ function startJob(
     let outcome: JobOutcome
     try {
       const command = dbtCommand(workspace.path, projectDir, await stringSetting(orca, 'dbtCommand'))
-      orca.log(`job ${jobId}: ${command.join(' ')} ${args[0]} in ${projectDir}`)
-      const run = await runDbt(command, [...args, '--log-format', 'json'], {
-        cwd: projectDir,
-        env: dbtEnvironment(workspace.path, projectDir, await stringSetting(orca, 'envFile')),
-        signal: controller.signal
-      })
+      const v2 = (await orca.settings.get('useV2Parser')) === true && !v2ParserBroken.has(projectDir)
+      orca.log(`job ${jobId}: ${command.join(' ')} ${args[0]} in ${projectDir}${v2 ? ' (v2 parser)' : ''}`)
+      const dbtArgs = [...args, '--log-format', 'json']
+      const jobEnv = { ...dbtEnvironment(workspace.path, projectDir, await stringSetting(orca, 'envFile')), ...env }
+      const options = { cwd: projectDir, signal: controller.signal }
+      let run = await runDbt(command, dbtArgs, { ...options, env: v2 ? { ...jobEnv, ...V2_PARSER_ENV } : jobEnv })
+      if (v2 && v2ParserFailed(run)) {
+        v2ParserBroken.add(projectDir)
+        orca.log(`job ${jobId}: the v2 parser failed on ${projectDir}; running again with dbt-core's own parser`)
+        run = await runDbt(command, dbtArgs, { ...options, env: jobEnv })
+      }
       outcome = { jobId, ms: Date.now() - started, run }
     } catch (error) {
       const ms = Date.now() - started
