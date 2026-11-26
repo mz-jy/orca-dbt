@@ -679,9 +679,11 @@ for (const tab of tabBar.querySelectorAll<HTMLButtonElement>('[data-tab]')) {
   })
 }
 
-// Back from editing files or a terminal: read the branch and the test results again.
+// Back from editing files or a terminal: read the branch and the test results again, and the
+// manifest when the panel could not read it (a parse from the terminal may have fixed it).
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible' || !state.status?.ok) return
+  if (document.visibilityState !== 'visible' || !state.status) return
+  if (!state.status.ok) return void load()
   void refreshChanges()
   void loadQuality()
 })
@@ -707,6 +709,9 @@ zoomIn.addEventListener('click', () => graphView.zoom(ZOOM_STEP))
 const zoomOut = byId<HTMLButtonElement>('zoom-out')
 zoomOut.replaceChildren(icon('minus', 14))
 zoomOut.addEventListener('click', () => graphView.zoom(1 / ZOOM_STEP))
+const reloadButton = byId<HTMLButtonElement>('reload')
+reloadButton.replaceChildren(icon('refresh', 14))
+reloadButton.addEventListener('click', () => void load())
 
 // Drag the tab bar between graph and sheet to share the height differently (narrow panels only).
 tabBar.addEventListener('pointerdown', (event) => {
