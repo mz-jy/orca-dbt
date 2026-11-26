@@ -324,6 +324,19 @@ button:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
+.pane-toggles {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.pane-toggle[aria-pressed='false'] {
+  color: var(--muted-fg);
+  opacity: 0.7;
+}
+
 .project {
   display: flex;
   flex: 0 1 240px;
@@ -512,12 +525,30 @@ button:focus-visible {
   }
 
   .project {
-    flex: 1 1 100%;
+    flex: 1 1 0;
   }
 
   .omnibox {
     flex-basis: 100%;
+    order: 3;
     max-width: none;
+  }
+
+  .wide-only {
+    display: none !important;
+  }
+
+  /* The sheet folded away: the graph takes the panel, the tabs stay to bring it back. */
+  .workspace.hide-left {
+    grid-template-rows: minmax(150px, 1fr) auto 0;
+  }
+
+  .workspace.hide-left .pane {
+    display: none;
+  }
+
+  .workspace.hide-left .grip {
+    visibility: hidden;
   }
 
   .omnibox-hint {
@@ -538,7 +569,7 @@ button:focus-visible {
 
 @media (min-width: 900px) {
   .workspace {
-    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(320px, 400px);
+    grid-template-columns: var(--left-width, minmax(240px, 300px)) minmax(0, 1fr) var(--right-width, minmax(320px, 400px));
     grid-template-rows: auto minmax(0, 1fr);
     grid-template-areas:
       'tabs graph details'
@@ -559,6 +590,58 @@ button:focus-visible {
   .details {
     grid-area: details;
     border-left: 1px solid var(--border);
+  }
+
+  .workspace.hide-left {
+    --left-width: 0px;
+  }
+
+  .workspace.hide-right {
+    --right-width: 0px;
+  }
+
+  .workspace.hide-left :is(.pane-tabs, .explorer, .changes, .quality),
+  .workspace.hide-right .details {
+    display: none !important;
+  }
+
+  /* Drag a pane's edge to resize it. */
+  .pane-edge {
+    position: absolute;
+    z-index: 4;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .pane-edge[data-edge='left'] {
+    left: 0;
+  }
+
+  .pane-edge[data-edge='right'] {
+    right: 0;
+  }
+
+  .pane-edge[data-edge='left']:hover,
+  .pane-edge[data-edge='left'].active {
+    background: linear-gradient(to right, var(--hl) 2px, transparent 2px);
+  }
+
+  .pane-edge[data-edge='right']:hover,
+  .pane-edge[data-edge='right'].active {
+    background: linear-gradient(to left, var(--hl) 2px, transparent 2px);
+  }
+
+  .workspace.hide-left .pane-edge[data-edge='left'],
+  .workspace.hide-right .pane-edge[data-edge='right'] {
+    display: none;
+  }
+
+  .workspace.resizing {
+    user-select: none;
+    cursor: col-resize;
   }
 
   .pane-tabs .tab {
@@ -1442,6 +1525,45 @@ code.context-main {
   stroke-linejoin: round;
   transform: translateY(calc(-12px / var(--k)));
   pointer-events: none;
+}
+
+/* Zoomed in enough: every dot's name, cut to the room before the next dot (the hovered,
+   selected or focused dot shows its whole name instead). */
+.node .dot-name {
+  display: none;
+}
+
+#svg.dots.named .node .dot-name {
+  display: inline;
+  fill: var(--muted-fg);
+  font-size: calc(11px / var(--k));
+  font-weight: 500;
+  dominant-baseline: central;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: calc(2.5px / var(--k));
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+#svg.dots.named .node .dot-name.beside {
+  text-anchor: start;
+  transform: translateX(calc(9px / var(--k)));
+}
+
+#svg.dots.named .node .dot-name.below {
+  text-anchor: middle;
+  transform: translateY(calc(13px / var(--k)));
+}
+
+#svg.dots.named .node.changed .dot-name {
+  fill: var(--fg);
+}
+
+#svg.dots.named .node.focus .dot-name,
+#svg.dots.named .node.selected .dot-name,
+#svg.dots.named .node:hover .dot-name {
+  display: none;
 }
 
 #svg.dots .edge {

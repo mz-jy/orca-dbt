@@ -68,6 +68,9 @@ const state = {
   problems: 0,
   /** The Quality pane lists every test, not only problems. */
   qualityAll: localStorage.getItem('qualityAll') === '1',
+  /** Side panes folded away, for more graph: the left (catalog, changes, quality; the sheet when narrow) and the details. */
+  hideLeft: localStorage.getItem('hideLeft') === '1',
+  hideRight: localStorage.getItem('hideRight') === '1',
   /** Why the last test run produced no results. */
   qualityError: null as string | null
 }
@@ -655,11 +658,21 @@ document.addEventListener('keydown', (event) => {
     searchInput.focus()
     searchInput.select()
   }
+  // [ and ] fold the left and right panes away; \ both, for the graph alone.
+  if (typing || event.metaKey || event.ctrlKey || event.altKey) return
+  if (event.key === '[') setPanes({ left: state.hideLeft })
+  else if (event.key === ']') setPanes({ right: state.hideRight })
+  else if (event.key === '\\') {
+    const show = state.hideLeft && (state.hideRight || !wideLayout.matches)
+    setPanes({ left: show, right: show })
+  } else return
+  event.preventDefault()
 })
 
 for (const tab of tabBar.querySelectorAll<HTMLButtonElement>('[data-tab]')) {
   tab.addEventListener('click', () => {
     const name = tab.dataset.tab!
+    if (state.hideLeft) setPanes({ left: true })
     if (name === 'details') return setSheetDetails(true)
     const wasChanges = changesMode()
     setSide(asSide(name))
@@ -709,6 +722,64 @@ zoomIn.addEventListener('click', () => graphView.zoom(ZOOM_STEP))
 const zoomOut = byId<HTMLButtonElement>('zoom-out')
 zoomOut.replaceChildren(icon('minus', 14))
 zoomOut.addEventListener('click', () => graphView.zoom(1 / ZOOM_STEP))
+const toggleLeft = byId<HTMLButtonElement>('toggle-left')
+const toggleRight = byId<HTMLButtonElement>('toggle-right')
+toggleLeft.addEventListener('click', () => setPanes({ left: state.hideLeft }))
+toggleRight.addEventListener('click', () => setPanes({ right: state.hideRight }))
+
+/** Shows (true) or folds away (false) the left and right panes. */
+function setPanes(shown: { left?: boolean; right?: boolean }): void {
+  if (shown.left !== undefined) state.hideLeft = !shown.left
+  if (shown.right !== undefined) state.hideRight = !shown.right
+  localStorage.setItem('hideLeft', state.hideLeft ? '1' : '0')
+  localStorage.setItem('hideRight', state.hideRight ? '1' : '0')
+  renderPanes()
+}
+
+function renderPanes(): void {
+  workspaceElement.classList.toggle('hide-left', state.hideLeft)
+  workspaceElement.classList.toggle('hide-right', state.hideRight)
+  const wide = wideLayout.matches
+  toggleLeft.replaceChildren(icon(wide ? 'panelLeft' : 'panelBottom', 15))
+  toggleLeft.title = `${state.hideLeft ? 'Show' : 'Hide'} ${wide ? 'the catalog, changes and quality pane' : 'the panes under the graph'} ([)`
+  toggleLeft.setAttribute('aria-pressed', String(!state.hideLeft))
+  toggleRight.replaceChildren(icon('panelRight', 15))
+  toggleRight.title = `${state.hideRight ? 'Show' : 'Hide'} the details pane (])`
+  toggleRight.setAttribute('aria-pressed', String(!state.hideRight))
+}
+
+// Drag a side pane's edge (on the graph's border) to set its width; double-click for the default.
+for (const edge of document.querySelectorAll<HTMLElement>('.pane-edge')) {
+  const side = edge.dataset.edge as 'left' | 'right'
+  const property = `--${side}-width`
+  edge.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    edge.setPointerCapture(event.pointerId)
+    edge.classList.add('active')
+    workspaceElement.classList.add('resizing')
+    const move = (moveEvent: PointerEvent) => {
+      const box = workspaceElement.getBoundingClientRect()
+      const width = side === 'left' ? moveEvent.clientX - box.left : box.right - moveEvent.clientX
+      workspaceElement.style.setProperty(property, `${Math.round(Math.min(Math.max(width, 200), box.width * 0.45))}px`)
+    }
+    const stop = () => {
+      edge.removeEventListener('pointermove', move)
+      edge.classList.remove('active')
+      workspaceElement.classList.remove('resizing')
+      localStorage.setItem(`${side}Width`, workspaceElement.style.getPropertyValue(property))
+    }
+    edge.addEventListener('pointermove', move)
+    edge.addEventListener('lostpointercapture', stop, { once: true })
+  })
+  edge.addEventListener('dblclick', () => {
+    workspaceElement.style.removeProperty(property)
+    localStorage.removeItem(`${side}Width`)
+  })
+  const saved = localStorage.getItem(`${side}Width`)
+  if (saved) workspaceElement.style.setProperty(property, saved)
+}
+
 const reloadButton = byId<HTMLButtonElement>('reload')
 reloadButton.replaceChildren(icon('refresh', 14))
 reloadButton.addEventListener('click', () => void load())
@@ -732,7 +803,10 @@ tabBar.addEventListener('pointerdown', (event) => {
   tabBar.addEventListener('pointerup', stop, { once: true })
 })
 grip.title = 'Drag to resize'
-wideLayout.addEventListener('change', renderTabs)
+wideLayout.addEventListener('change', () => {
+  renderTabs()
+  renderPanes()
+})
 
 // Links in descriptions open in the browser, through Orca (the frame cannot navigate away).
 detailsElement.addEventListener('click', (event) => {
@@ -772,5 +846,6 @@ if (savedHeight) workspaceElement.style.setProperty('--sheet-height', savedHeigh
 searchInput.value = state.selector
 setSelector(state.selector)
 renderOrientation()
+renderPanes()
 renderChrome()
 void load()

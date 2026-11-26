@@ -26,7 +26,11 @@ export type GraphViewEvents = {
   expand(id: string, direction: Direction): void
 }
 
-const NODE_WIDTH = 216
+/** Cards are as wide as the graph's longest name needs, between these; longer names lose their middle. */
+const MIN_NODE_WIDTH = 216
+const MAX_NODE_WIDTH = 340
+/** The drawn graph's card width (one graph is drawn at a time). */
+let NODE_WIDTH = MIN_NODE_WIDTH
 const NODE_HEIGHT = 50
 const PAD = 14
 /** Fitting the whole graph below this zoom makes labels unreadable... */
@@ -38,6 +42,9 @@ const MAX_SCALE = 3
 /** Below this zoom nodes are dots; above it, cards. Two thresholds, so it does not flicker. */
 const DOTS_BELOW = 0.5
 const CARDS_ABOVE = 0.56
+/** Dots get their names beside them from this zoom up (there is room for a line of text). */
+const NAMES_ABOVE = 0.2
+const NAME_FONT = 11
 /** Lanes reach this far past their nodes, with room for the label on top. */
 const CLUSTER_PAD = 12
 const CLUSTER_LABEL = 22
@@ -49,6 +56,7 @@ type Layout = {
   clusters: { key: string; label: string; count: number; x: number; y: number; width: number; height: number }[]
   width: number
   height: number
+  nodeWidth: number
 }
 
 export class GraphView {
@@ -64,6 +72,10 @@ export class GraphView {
   private selected: string | null = null
   private view = { x: 0, y: 0, k: 1 }
   private dots = false
+  /** The view is as fit() left it (no pan or zoom since). */
+  private fitted = false
+  /** How many pixels a dot's name may take at the current zoom (0: names hidden), in steps. */
+  private nameRoom = 0
   private frame = 0
   private bounds = { width: 0, height: 0 }
   private focusCenter: Point | null = null
@@ -95,13 +107,18 @@ export class GraphView {
     this.edgesLayer = svg.querySelector('#edges')!
     this.nodesLayer = svg.querySelector('#nodes')!
     this.listen()
-    let size = ''
+    let size = { width: 0, height: 0 }
     new ResizeObserver(([entry]) => {
-      // Refit only when the size really changed (not on every layout pass).
-      const next = `${Math.round(entry.contentRect.width)}x${Math.round(entry.contentRect.height)}`
-      if (next === size) return
+      const next = { width: Math.round(entry.contentRect.width), height: Math.round(entry.contentRect.height) }
+      if (next.width === size.width && next.height === size.height) return
+      const before = size
       size = next
-      if (this.graph) this.fit()
+      if (!this.graph) return
+      // Untouched since it was fitted: fit again. Panned or zoomed: keep the same middle in view.
+      if (this.fitted || !before.width) return this.fit()
+      this.view.x += (next.width - before.width) / 2
+      this.view.y += (next.height - before.height) / 2
+      this.applyView(true)
     }).observe(svg)
   }
 
@@ -183,6 +200,7 @@ export class GraphView {
         y: clamp(height / 2 - center.y * k, height, this.bounds.height)
       }
     }
+    this.fitted = true
     this.applyView(true)
   }
 
@@ -196,6 +214,7 @@ export class GraphView {
     const { x, y, k } = this.view
     const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next))
     this.view = { k: scale, x: cx - ((cx - x) * scale) / k, y: cy - ((cy - y) * scale) / k }
+    this.fitted = false
     this.applyView()
   }
 
@@ -215,8 +234,12 @@ export class GraphView {
 
   private layout(graph: LineageGraph): Layout {
     const cached = this.layoutCache
-    if (cached && cached.graph === graph && cached.orientation === this.orientation && cached.grouping === this.grouping) return cached.layout
+    if (cached && cached.graph === graph && cached.orientation === this.orientation && cached.grouping === this.grouping) {
+      NODE_WIDTH = cached.layout.nodeWidth
+      return cached.layout
+    }
 
+    NODE_WIDTH = this.cardWidth(graph)
     const horizontal = this.orientation === 'LR'
     const laidOut = new Graph()
       .setGraph({ rankdir: this.orientation, nodesep: horizontal ? 18 : 28, ranksep: horizontal ? 60 : 52, marginx: 24, marginy: 24 })
@@ -248,7 +271,7 @@ export class GraphView {
         dot: curve([positions.get(from)!, ...points.slice(1, -1), positions.get(to)!])
       }))
     }
-    const result = { positions, edges, clusters, width, height }
+    const result = { positions, edges, clusters, width, height, nodeWidth: NODE_WIDTH }
     this.layoutCache = { graph, orientation: this.orientation, grouping: this.grouping, layout: result }
     return result
   }
@@ -323,6 +346,14 @@ export class GraphView {
     return horizontal ? { width: alongExtent, height: cursor + 8, clusters } : { width: cursor + 8, height: alongExtent, clusters }
   }
 
+  /** Wide enough for the longest name (and the change chip), within the bounds. */
+  private cardWidth(graph: LineageGraph): number {
+    this.measure.font = `600 12.5px ${this.font()}`
+    let longest = 0
+    for (const node of graph.nodes) longest = Math.max(longest, this.measure.measureText(node.name).width)
+    return Math.min(MAX_NODE_WIDTH, Math.max(MIN_NODE_WIDTH, Math.ceil(longest + PAD * 2 + 26 + 22 + 2)))
+  }
+
   private groupingLabel(): string {
     return this.grouping.startsWith('meta:') ? this.grouping.slice('meta:'.length) : this.grouping
   }
@@ -385,6 +416,7 @@ export class GraphView {
       this.drawNode(group, node, node.id === graph.focus)
     }
     this.nodesLayer.append(nodes)
+    this.nameRoom = -1
     this.highlight(true)
   }
 
@@ -428,8 +460,12 @@ export class GraphView {
 
     // Zoomed out: a dot (its ring says changed or failing).
     svgEl('circle', { class: 'dot', cx: NODE_WIDTH / 2, cy: NODE_HEIGHT / 2 }, group)
-    // Its name shows over the dot when it is the focus, selected or hovered.
+    // Its whole name shows over the dot when it is the focus, selected or hovered...
     svgEl('text', { class: 'dot-label', x: NODE_WIDTH / 2, y: NODE_HEIGHT / 2 }, group).textContent = node.name
+    // ...and every dot's name, cut to the room there is, beside it once zoomed in far enough.
+    const name = svgEl('text', { class: `dot-name ${this.orientation === 'LR' ? 'beside' : 'below'}`, x: NODE_WIDTH / 2, y: NODE_HEIGHT / 2 }, group)
+    name.dataset.name = node.name
+    if (this.nameRoom > 0) name.textContent = this.clip(node.name, `500 ${NAME_FONT}px ${this.font()}`, this.nameRoom)
 
     // Zoomed in: the card.
     const card = svgEl('g', { class: 'card' }, group)
@@ -474,7 +510,10 @@ export class GraphView {
     pill(node.hiddenChildren, 'down')
   }
 
-  /** `text` cut with an ellipsis to fit `maxWidth` pixels (memoized: redraws measure nothing). */
+  /**
+   * `text` fitted to `maxWidth` pixels, its middle replaced by an ellipsis when too long: dbt names
+   * share prefixes (stg_, int_…) and differ at either end. Memoized: redraws measure nothing.
+   */
   private clip(text: string, font: string, maxWidth: number): string {
     const key = `${font}|${maxWidth}|${text}`
     const known = this.clipped.get(key)
@@ -482,14 +521,18 @@ export class GraphView {
     this.measure.font = font
     let result = text
     if (this.measure.measureText(text).width > maxWidth) {
+      const cut = (keep: number) => {
+        const head = Math.ceil(keep * 0.55)
+        return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`
+      }
       let low = 0
-      let high = text.length
+      let high = text.length - 1
       while (low < high) {
         const mid = (low + high + 1) >> 1
-        if (this.measure.measureText(`${text.slice(0, mid)}…`).width <= maxWidth) low = mid
+        if (this.measure.measureText(cut(mid)).width <= maxWidth) low = mid
         else high = mid - 1
       }
-      result = `${text.slice(0, low)}…`
+      result = low > 0 ? cut(low) : '…'
     }
     if (this.clipped.size > 20_000) this.clipped.clear()
     this.clipped.set(key, result)
@@ -563,6 +606,7 @@ export class GraphView {
       this.svg.classList.toggle('dots', dots)
       for (const edge of this.edgeElements) edge.element.setAttribute('d', dots ? edge.dot : edge.card)
     }
+    this.writeNames(dots && k >= NAMES_ABOVE ? k : 0)
     // The dot grid behind the graph pans and zooms with it (sparser when far out).
     const area = this.svg.parentElement
     if (area) {
@@ -571,6 +615,23 @@ export class GraphView {
       area.style.setProperty('--grid-size', `${step}px`)
       area.style.setProperty('--grid-x', `${x % step}px`)
       area.style.setProperty('--grid-y', `${y % step}px`)
+    }
+  }
+
+  /**
+   * Dots' names, cut to the gap to the next dot along the flow (beside, horizontal) or across it
+   * (below, vertical) at zoom `k`; 0 hides them. Recut only when the room changes by a step.
+   */
+  private writeNames(k: number): void {
+    const pitch = this.orientation === 'LR' ? NODE_WIDTH + 60 : NODE_WIDTH + 28
+    const room = k > 0 ? Math.min(320, Math.floor((pitch * k - 18) / 12) * 12) : 0
+    if (room === this.nameRoom) return
+    this.nameRoom = room
+    this.svg.classList.toggle('named', room > 0)
+    if (room <= 0) return
+    const font = `500 ${NAME_FONT}px ${this.font()}`
+    for (const label of this.nodesLayer.querySelectorAll<SVGTextElement>('.dot-name')) {
+      label.textContent = this.clip(label.dataset.name ?? '', font, room)
     }
   }
 
@@ -590,6 +651,7 @@ export class GraphView {
       const dy = event.clientY - drag.pointerY
       if (!drag.moved && Math.hypot(dx, dy) < 3) return
       drag.moved = true
+      this.fitted = false
       svg.classList.add('panning')
       this.view.x = drag.viewX + dx
       this.view.y = drag.viewY + dy

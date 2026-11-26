@@ -28,7 +28,11 @@
         <button id="clear-search" type="button" class="btn btn-ghost btn-icon btn-sm" title="Clear (Esc)" hidden></button>
         <select id="yaml" class="omnibox-yaml" hidden title="YAML selectors from selectors.yml"></select>
       </div>
-      <button id="reload" type="button" class="btn btn-ghost btn-icon" title="Reload the manifest"></button>
+      <div class="pane-toggles">
+        <button id="toggle-left" type="button" class="btn btn-ghost btn-icon pane-toggle"></button>
+        <button id="toggle-right" type="button" class="btn btn-ghost btn-icon pane-toggle wide-only"></button>
+        <button id="reload" type="button" class="btn btn-ghost btn-icon" title="Reload the manifest"></button>
+      </div>
     </header>
     <div id="notice" class="notice" role="status" hidden></div>
     <main id="workspace" class="workspace">
@@ -40,6 +44,8 @@
         <span class="grip narrow-only" id="grip" title="Drag to resize"></span>
       </nav>
       <section class="graph-area" aria-label="Lineage graph">
+        <div class="pane-edge wide-only" data-edge="left" title="Drag to resize · double-click to reset"></div>
+        <div class="pane-edge wide-only" data-edge="right" title="Drag to resize · double-click to reset"></div>
         <svg id="svg">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">

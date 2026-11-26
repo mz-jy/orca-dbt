@@ -12,12 +12,16 @@ the lineage graph in the middle and the node in hand on the right. They move tog
 - **Search box**: type to search names, column names and descriptions; press ↵ to draw it as a
   dbt selector (`+orders+ tag:finance,config.materialized:table --exclude path:models/legacy`),
   or pick one from your `selectors.yml`. `/` or ⌘K jumps to it, Esc clears it.
+- **Side panes**: the buttons at the top right (or `[` and `]`) hide the left and right panes;
+  `\` hides both for the graph alone. Drag a pane's edge to resize it, double-click it to reset.
 - **Lineage graph**: the focused node's upstream and downstream, horizontal or vertical, with
   steppers for each depth. A chip in its corner says what it draws (a node's lineage, a selector,
   or the branch's changes) and clears a selector. Click a node to see it, double-click to centre
   the lineage on it, use `+n` to reveal hidden neighbours, drag to pan, scroll to zoom. Zoomed
   out, nodes become dots in their type's colour (ringed when changed or failing) so a big graph
-  reads as a map; zoom in for the cards. **Group** draws the nodes in lanes by folder, tag,
+  reads as a map, with their names beside them once there is room; zoom in for the cards. Cards
+  grow to fit long names; a name still too long keeps its start and end (`stg_fin…_daily_v2`),
+  and hovering shows it whole. **Group** draws the nodes in lanes by folder, tag,
   schema, owner, package or any meta key (none by default); unconnected pieces tile into a grid.
 - **Catalog**: every model, source, seed, snapshot and exposure, A–Z or grouped by folder, tag,
   schema, resource type, package, owner or a meta key. Picking a node draws its lineage.
