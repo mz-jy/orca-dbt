@@ -4,3 +4,4 @@ dbt_packages/
 *.duckdb
 *.duckdb.wal
 .user.yml
+dbt_internal_packages/
