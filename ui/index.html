@@ -41,11 +41,9 @@
         <button type="button" class="tab" data-tab="changes"></button>
         <button type="button" class="tab" data-tab="quality"></button>
         <button type="button" class="tab narrow-only" data-tab="details"></button>
-        <span class="grip narrow-only" id="grip" title="Drag to resize"></span>
+        <span class="grip" id="grip" title="Drag to resize"></span>
       </nav>
       <section class="graph-area" aria-label="Lineage graph">
-        <div class="pane-edge wide-only" data-edge="left" title="Drag to resize · double-click to reset"></div>
-        <div class="pane-edge wide-only" data-edge="right" title="Drag to resize · double-click to reset"></div>
         <svg id="svg">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
@@ -77,6 +75,8 @@
           <button id="fit" type="button" class="btn btn-ghost btn-icon" title="Fit the whole graph"></button>
         </div>
       </section>
+      <div class="sheet-edge wide-only" id="sheet-edge" title="Drag to resize · double-click to reset"></div>
+      <div class="sheet-split wide-only" id="sheet-split" title="Drag to resize · double-click to reset"></div>
       <section id="explorer" class="pane explorer" aria-label="Catalog"></section>
       <section id="changes" class="pane changes" aria-label="Branch changes"></section>
       <section id="quality" class="pane quality" aria-label="Data quality"></section>

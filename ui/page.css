@@ -558,26 +558,41 @@ button:focus-visible {
   .pane-tabs {
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
-    cursor: row-resize;
-    touch-action: none;
-  }
-
-  .workspace.resizing {
-    user-select: none;
   }
 }
 
+/* Drag the tab bar (or, wide, the sheet's edge) to share the height between graph and sheet. */
+.pane-tabs {
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.pane-tabs .tab {
+  cursor: pointer;
+}
+
+.workspace.resizing {
+  user-select: none;
+}
+
 @media (min-width: 900px) {
+  /* Wide: the graph keeps the whole width (a bigger panel is a bigger graph); the side pane and
+     the details share the sheet under it. */
   .workspace {
-    grid-template-columns: var(--left-width, minmax(240px, 300px)) minmax(0, 1fr) var(--right-width, minmax(320px, 400px));
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-columns: var(--left-width, minmax(280px, 40%)) minmax(0, 1fr);
     grid-template-areas:
-      'tabs graph details'
-      'side graph details';
+      'graph graph'
+      'tabs details'
+      'side details';
   }
 
   .narrow-only {
     display: none !important;
+  }
+
+  .pane-tabs {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
 
   .pane-tabs,
@@ -589,67 +604,66 @@ button:focus-visible {
 
   .details {
     grid-area: details;
-    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    /* It spans the tab bar's row too: its content must not stretch that row. */
+    contain: size;
   }
 
   .workspace.hide-left {
-    --left-width: 0px;
+    grid-template-columns: 0 minmax(0, 1fr);
   }
 
   .workspace.hide-right {
-    --right-width: 0px;
+    grid-template-columns: minmax(0, 1fr) 0;
   }
 
-  .workspace.hide-left :is(.pane-tabs, .explorer, .changes, .quality),
-  .workspace.hide-right .details {
+  .workspace.hide-left.hide-right {
+    grid-template-rows: minmax(150px, 1fr) 0 0;
+  }
+
+  .workspace.hide-left :is(.pane-tabs, .explorer, .changes, .quality, .sheet-split),
+  .workspace.hide-right :is(.details, .sheet-split),
+  .workspace.hide-left.hide-right .sheet-edge {
     display: none !important;
   }
 
-  /* Drag a pane's edge to resize it. */
-  .pane-edge {
-    position: absolute;
+  .workspace.hide-right :is(.pane-tabs, .explorer, .changes, .quality) {
+    border-right: none;
+  }
+
+  /* Handles: the sheet's top edge sets its height, the line between its panes their widths. */
+  .sheet-edge,
+  .sheet-split {
     z-index: 4;
-    top: 0;
-    bottom: 0;
-    width: 6px;
-    cursor: col-resize;
     touch-action: none;
   }
 
-  .pane-edge[data-edge='left'] {
-    left: 0;
+  .sheet-edge {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    align-self: start;
+    height: 6px;
+    margin-top: -3px;
+    cursor: row-resize;
   }
 
-  .pane-edge[data-edge='right'] {
-    right: 0;
-  }
-
-  .pane-edge[data-edge='left']:hover,
-  .pane-edge[data-edge='left'].active {
-    background: linear-gradient(to right, var(--hl) 2px, transparent 2px);
-  }
-
-  .pane-edge[data-edge='right']:hover,
-  .pane-edge[data-edge='right'].active {
-    background: linear-gradient(to left, var(--hl) 2px, transparent 2px);
-  }
-
-  .workspace.hide-left .pane-edge[data-edge='left'],
-  .workspace.hide-right .pane-edge[data-edge='right'] {
-    display: none;
-  }
-
-  .workspace.resizing {
-    user-select: none;
+  .sheet-split {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    justify-self: start;
+    width: 6px;
+    margin-left: -3px;
     cursor: col-resize;
   }
 
-  .pane-tabs .tab {
-    flex: 1 1 auto;
-    justify-content: center;
-    min-width: 0;
-    padding: 0 6px;
-    gap: 5px;
+  .sheet-edge:hover,
+  .sheet-edge.active {
+    background: linear-gradient(to bottom, transparent 2px, var(--hl) 2px, var(--hl) 4px, transparent 4px);
+  }
+
+  .sheet-split:hover,
+  .sheet-split.active {
+    background: linear-gradient(to right, transparent 2px, var(--hl) 2px, var(--hl) 4px, transparent 4px);
   }
 }
 
@@ -755,6 +769,19 @@ button:focus-visible {
   font-weight: 650;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.explorer .pane-head h2 {
+  flex-shrink: 0;
+}
+
+.pane-head .inline-label {
+  min-width: 0;
+}
+
+.pane-head .inline-label select {
+  min-width: 0;
+  max-width: 170px;
 }
 
 .pane-head .head-icon {

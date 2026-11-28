@@ -33,8 +33,8 @@ const PATHS = {
   graph: 'M6 5a2 2 0 1 0 0 4a2 2 0 0 0 0-4z M18 5a2 2 0 1 0 0 4a2 2 0 0 0 0-4z M12 15a2 2 0 1 0 0 4a2 2 0 0 0 0-4z M7.5 8.5l3.5 6.5 M16.5 8.5L13 15',
   terminal: 'M4 6l6 6-6 6 M12 18h8',
   layers: 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5',
-  panelLeft: 'M4 5h16v14H4z M9.5 5v14',
-  panelRight: 'M4 5h16v14H4z M14.5 5v14',
+  sheetLeft: 'M4 5h16v14H4z M4 13.5h8 M12 13.5V19',
+  sheetRight: 'M4 5h16v14H4z M12 13.5h8 M12 13.5V19',
   panelBottom: 'M4 5h16v14H4z M4 14.5h16'
 } as const
 

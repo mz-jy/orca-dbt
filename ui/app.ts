@@ -747,68 +747,75 @@ function renderPanes(): void {
   workspaceElement.classList.toggle('hide-left', state.hideLeft)
   workspaceElement.classList.toggle('hide-right', state.hideRight)
   const wide = wideLayout.matches
-  toggleLeft.replaceChildren(icon(wide ? 'panelLeft' : 'panelBottom', 15))
+  toggleLeft.replaceChildren(icon(wide ? 'sheetLeft' : 'panelBottom', 15))
   toggleLeft.title = `${state.hideLeft ? 'Show' : 'Hide'} ${wide ? 'the catalog, changes and quality pane' : 'the panes under the graph'} ([)`
   toggleLeft.setAttribute('aria-pressed', String(!state.hideLeft))
-  toggleRight.replaceChildren(icon('panelRight', 15))
+  toggleRight.replaceChildren(icon('sheetRight', 15))
   toggleRight.title = `${state.hideRight ? 'Show' : 'Hide'} the details pane (])`
   toggleRight.setAttribute('aria-pressed', String(!state.hideRight))
-}
-
-// Drag a side pane's edge (on the graph's border) to set its width; double-click for the default.
-for (const edge of document.querySelectorAll<HTMLElement>('.pane-edge')) {
-  const side = edge.dataset.edge as 'left' | 'right'
-  const property = `--${side}-width`
-  edge.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return
-    event.preventDefault()
-    edge.setPointerCapture(event.pointerId)
-    edge.classList.add('active')
-    workspaceElement.classList.add('resizing')
-    const move = (moveEvent: PointerEvent) => {
-      const box = workspaceElement.getBoundingClientRect()
-      const width = side === 'left' ? moveEvent.clientX - box.left : box.right - moveEvent.clientX
-      workspaceElement.style.setProperty(property, `${Math.round(Math.min(Math.max(width, 200), box.width * 0.45))}px`)
-    }
-    const stop = () => {
-      edge.removeEventListener('pointermove', move)
-      edge.classList.remove('active')
-      workspaceElement.classList.remove('resizing')
-      localStorage.setItem(`${side}Width`, workspaceElement.style.getPropertyValue(property))
-    }
-    edge.addEventListener('pointermove', move)
-    edge.addEventListener('lostpointercapture', stop, { once: true })
-  })
-  edge.addEventListener('dblclick', () => {
-    workspaceElement.style.removeProperty(property)
-    localStorage.removeItem(`${side}Width`)
-  })
-  const saved = localStorage.getItem(`${side}Width`)
-  if (saved) workspaceElement.style.setProperty(property, saved)
 }
 
 const reloadButton = byId<HTMLButtonElement>('reload')
 reloadButton.replaceChildren(icon('refresh', 14))
 reloadButton.addEventListener('click', () => void load())
 
-// Drag the tab bar between graph and sheet to share the height differently (narrow panels only).
-tabBar.addEventListener('pointerdown', (event) => {
-  if ((event.target as Element).closest('button') || wideLayout.matches) return
-  tabBar.setPointerCapture(event.pointerId)
-  workspaceElement.classList.add('resizing')
-  const move = (moveEvent: PointerEvent) => {
+/** Calls `move` with each pointer position while `handle` is dragged, then `done`. */
+function dragHandle(handle: HTMLElement, move: (event: PointerEvent) => void, done: () => void): void {
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || (event.target as Element).closest('button')) return
+    event.preventDefault()
+    handle.setPointerCapture(event.pointerId)
+    handle.classList.add('active')
+    workspaceElement.classList.add('resizing')
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener(
+      'lostpointercapture',
+      () => {
+        handle.removeEventListener('pointermove', move)
+        handle.classList.remove('active')
+        workspaceElement.classList.remove('resizing')
+        done()
+      },
+      { once: true }
+    )
+  })
+}
+
+/** A size kept in localStorage as a CSS property of the workspace; double-clicking `handles` resets it. */
+function keepSize(property: string, key: string, handles: HTMLElement[]): () => void {
+  const saved = localStorage.getItem(key)
+  if (saved) workspaceElement.style.setProperty(property, saved)
+  for (const handle of handles) {
+    handle.addEventListener('dblclick', (event) => {
+      if ((event.target as Element).closest('button')) return
+      workspaceElement.style.removeProperty(property)
+      localStorage.removeItem(key)
+    })
+  }
+  return () => localStorage.setItem(key, workspaceElement.style.getPropertyValue(property))
+}
+
+// The sheet under the graph: drag the tab bar (or, wide, the sheet's top edge) for its height...
+const sheetEdge = byId<HTMLElement>('sheet-edge')
+const saveHeight = keepSize('--sheet-height', 'sheetHeight', [tabBar, sheetEdge])
+const setHeight = (event: PointerEvent) => {
+  const box = workspaceElement.getBoundingClientRect()
+  const height = Math.min(Math.max(box.bottom - event.clientY - tabBar.offsetHeight, 120), box.height - 160)
+  workspaceElement.style.setProperty('--sheet-height', `${Math.round(height)}px`)
+}
+dragHandle(tabBar, setHeight, saveHeight)
+dragHandle(sheetEdge, setHeight, saveHeight)
+// ...and, wide, the line between the side pane and the details for their widths.
+const sheetSplit = byId<HTMLElement>('sheet-split')
+dragHandle(
+  sheetSplit,
+  (event) => {
     const box = workspaceElement.getBoundingClientRect()
-    const height = Math.min(Math.max(box.bottom - moveEvent.clientY - tabBar.offsetHeight / 2, 140), box.height - 180)
-    workspaceElement.style.setProperty('--sheet-height', `${height}px`)
-  }
-  const stop = () => {
-    tabBar.removeEventListener('pointermove', move)
-    workspaceElement.classList.remove('resizing')
-    localStorage.setItem('sheetHeight', workspaceElement.style.getPropertyValue('--sheet-height'))
-  }
-  tabBar.addEventListener('pointermove', move)
-  tabBar.addEventListener('pointerup', stop, { once: true })
-})
+    const width = Math.min(Math.max(event.clientX - box.left, 220), box.width - 320)
+    workspaceElement.style.setProperty('--left-width', `${Math.round(width)}px`)
+  },
+  keepSize('--left-width', 'leftWidth', [sheetSplit])
+)
 grip.title = 'Drag to resize'
 wideLayout.addEventListener('change', () => {
   renderTabs()
@@ -853,8 +860,6 @@ orca.on('workspace.changed', ({ context }) => {
   if (changed) void load()
 })
 
-const savedHeight = localStorage.getItem('sheetHeight')
-if (savedHeight) workspaceElement.style.setProperty('--sheet-height', savedHeight)
 searchInput.value = state.selector
 setSelector(state.selector)
 renderOrientation()

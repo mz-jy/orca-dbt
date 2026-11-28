@@ -6,14 +6,16 @@ A data catalog and lineage viewer for the dbt project in your Orca workspace. It
 v1 (dbt-core) and v2 (dbt Fusion), and with any warehouse your dbt profile connects to:
 Snowflake, ClickHouse, Postgres, DuckDB and the rest.
 
-One page, **dbt**. A search box on top, a side pane (**Catalog**, **Changes** or **Quality**),
-the lineage graph in the middle and the node in hand on the right. They move together:
+One page, **dbt**. A search box on top, the lineage graph across the whole width (a bigger panel
+is a bigger graph), and under it a side pane (**Catalog**, **Changes** or **Quality**) beside
+the node in hand (in a narrow panel, tabs). They move together:
 
 - **Search box**: type to search names, column names and descriptions; press ↵ to draw it as a
   dbt selector (`+orders+ tag:finance,config.materialized:table --exclude path:models/legacy`),
   or pick one from your `selectors.yml`. `/` or ⌘K jumps to it, Esc clears it.
-- **Side panes**: the buttons at the top right (or `[` and `]`) hide the left and right panes;
-  `\` hides both for the graph alone. Drag a pane's edge to resize it, double-click it to reset.
+- **Panes**: the buttons at the top right (or `[` and `]`) hide the side pane and the details;
+  `\` hides both for the graph alone. Drag the tab bar to give the graph more or less height and
+  the line between the panes to share their width; double-click to reset.
 - **Lineage graph**: the focused node's upstream and downstream, horizontal or vertical, with
   steppers for each depth. A chip in its corner says what it draws (a node's lineage, a selector,
   or the branch's changes) and clears a selector. Click a node to see it, double-click to centre
