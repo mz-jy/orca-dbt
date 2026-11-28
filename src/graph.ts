@@ -577,3 +577,46 @@ export function previewSql(id: string, type: string, name: string, packageName: 
   }
   return null
 }
+
+/**
+ * The node a person or an agent names: by unique id (`model.shop.orders`), else by name
+ * (`orders`, `raw.orders` for a source), the project's own before a package's. Null when no node has it.
+ */
+export function resolveNode(graph: Graph, reference: string): GraphNode | null {
+  const wanted = reference.trim()
+  const byId = graph.nodes.get(wanted)
+  if (byId) return byId
+  const named = [...graph.nodes.values()].filter((node) => node.name === wanted)
+  return named.find((node) => node.packageName === graph.projectName) ?? named[0] ?? null
+}
+
+/**
+ * Every node up to `depth` edges above (`up`) or below (`down`) node `id`, nearest first, each
+ * with its distance; `truncated` when more than `limit` are that near.
+ */
+export function reach(
+  graph: Graph,
+  id: string,
+  direction: Direction,
+  depth: number,
+  limit: number
+): { nodes: (NodeSummary & { depth: number })[]; truncated: boolean } {
+  const edges = direction === 'up' ? graph.parents : graph.children
+  const seen = new Set([id])
+  const nodes: (NodeSummary & { depth: number })[] = []
+  let level = [id]
+  for (let distance = 1; distance <= depth && level.length > 0; distance++) {
+    const next: string[] = []
+    for (const from of level) {
+      for (const neighbor of edges.get(from) ?? []) {
+        if (seen.has(neighbor)) continue
+        if (nodes.length >= limit) return { nodes, truncated: true }
+        seen.add(neighbor)
+        next.push(neighbor)
+        nodes.push({ ...summarize(graph, neighbor), depth: distance })
+      }
+    }
+    level = next
+  }
+  return { nodes, truncated: false }
+}

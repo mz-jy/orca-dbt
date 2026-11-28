@@ -186,6 +186,9 @@ export type QualityFlag = { status: TestStatus; problems: number; tests: number 
 /** A test run in progress. */
 export type QualityRun = { jobId: string; label: string; startedAt: number }
 
+/** How a test run ended: `ran` tests have new results, or `error` says why there are none. */
+export type QualityDone = { jobId: string; ok: boolean; ran: number; error?: string }
+
 export type QualityReport = {
   /** Tests by latest status; `never` for those without a result. */
   counts: Record<TestStatus | 'never', number>
@@ -277,7 +280,7 @@ declare module 'orca' {
     /** A file of the project was saved in an editor tab: focus the node it holds. */
     'lineage.reveal': { id: string }
     'parse.done': { jobId: string; ok: boolean; error?: string }
-    /** A test run ended: `ran` tests have new results, or `error` says why there are none. */
-    'quality.done': { jobId: string; ok: boolean; ran: number; error?: string }
+    /** A test run ended, started from a panel or by an agent over MCP. */
+    'quality.done': QualityDone
   }
 }

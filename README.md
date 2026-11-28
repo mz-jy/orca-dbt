@@ -68,10 +68,10 @@ What it asks for, and why:
 
 | Access            | Used for                                                                 |
 | ----------------- | ------------------------------------------------------------------------ |
-| Runs a worker     | reading `target/manifest.json`, running your project's dbt for queries   |
+| Runs a worker     | reading `target/manifest.json`, running your project's dbt for queries, serving agents over MCP |
 | `workspace:read`  | finding the focused workspace and its folder                             |
 | `workspace:write` | opening a model's file in an editor tab                                  |
-| `settings:own`    | the plugin's settings (project folder, dbt command, base branch, env file) |
+| `settings:own`    | the plugin's settings (project folder, dbt command, base branch, env file, MCP port) |
 
 ## How it finds your project
 
@@ -118,6 +118,44 @@ What it asks for, and why:
   macro to every model that calls it, directly or through other macros. Files no node comes
   from (`dbt_project.yml`, singular tests, …) are listed apart. When a changed file is newer
   than the manifest, the panel offers **Run dbt parse** so new models appear.
+
+## For coding agents: MCP
+
+While the plugin is enabled, its worker serves the same project to agents over the
+[Model Context Protocol](https://modelcontextprotocol.io) at `http://127.0.0.1:7433/mcp`
+(Streamable HTTP; the port is the **MCP server port** setting, 0 turns it off). Connect an agent
+once:
+
+```sh
+claude mcp add --transport http dbt http://127.0.0.1:7433/mcp
+```
+
+or, in a project's `.mcp.json` (other agents take the same URL in their own MCP settings): `{ "mcpServers": { "dbt": { "type": "http", "url": "http://127.0.0.1:7433/mcp" } } }`.
+
+| Tool               | What it answers                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| `dbt_project`      | the project, when its manifest was written, its nodes by type, tests and YAML selectors  |
+| `dbt_search`       | nodes by name, id, column name or description                                            |
+| `dbt_node`         | a node's file, relation, docs, columns, parents, children and latest test results        |
+| `dbt_lineage`      | everything upstream and downstream of a node, with its distance                          |
+| `dbt_select`       | the nodes a dbt selector chooses, without running dbt                                    |
+| `dbt_impact`       | what the branch changed (or the nodes you name), all it reaches downstream, the exposures affected, and a selector that builds and tests exactly that |
+| `dbt_test_results` | the latest result of every test, problems first                                          |
+| `dbt_run_tests`    | runs `dbt test` on a node, a selector, named tests or everything, and waits for the results |
+| `dbt_query`        | rows from the warehouse: your SQL (`{{ ref() }}` works), a node's preview, or what a failing test found |
+| `dbt_parse`        | runs `dbt parse` so new models and refs appear                                           |
+
+Every tool takes `workspace`, the absolute path of the folder the agent works in: the Orca
+workspace that holds it answers (or the folder itself, for an agent started outside Orca), so
+agents in several worktrees each see their own branch. Without it, the workspace focused in Orca
+answers. Runs use the same dbt, env files and settings as the panel, take turns with its runs,
+and a test run an agent starts refreshes the Quality pane. A run stops when the agent stops
+waiting; raise the agent's tool timeout for test suites that take minutes (Claude Code:
+`MCP_TOOL_TIMEOUT`, in milliseconds).
+
+The server listens on 127.0.0.1 only and refuses requests from web pages, but it has no
+password: any program running as you on this computer can call it, and so run queries with your
+dbt profile's credentials, as it could by running dbt itself.
 
 ## dbt v1 and v2
 
@@ -167,6 +205,7 @@ orca plugin dev watch .    # loads this folder into Orca, streams logs, reloads 
 | `src/git.ts`                 | the branch's changed files since its merge base                    |
 | `src/changes.ts`             | changed files onto nodes, what they reach, the build command (pure) |
 | `src/protocol.ts`            | the requests and events between the page and the worker            |
+| `src/mcp.ts`                 | the MCP server agents connect to; its tools are in `src/worker.ts` |
 | `ui/index.html`, `ui/app.ts` | the page: layout, state, and what each click does                  |
 | `ui/graph-view.ts`           | the lineage graph: dagre's layout drawn as SVG, pan, zoom          |
 | `ui/catalog-view.ts`         | the catalog tree and the search and selector result lists          |

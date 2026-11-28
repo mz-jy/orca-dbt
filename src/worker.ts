@@ -1,10 +1,11 @@
 // The plugin's worker: finds the focused workspace's dbt project, reads its target/manifest.json
 // (and catalog.json), answers the panels' catalog and lineage requests, and runs the project's
-// own dbt for data previews. Orca transpiles this file when it loads: no build step.
+// own dbt for data previews. Coding agents get the same over MCP (src/mcp.ts), as the tools at
+// the end of this file. Orca transpiles this file when it loads: no build step.
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   buildGraph,
@@ -13,6 +14,8 @@ import {
   neighbors,
   nodeForFile,
   previewSql,
+  reach,
+  resolveNode,
   summarize,
   search,
   selectionGraph,
@@ -21,7 +24,7 @@ import {
   type RawCatalog,
   type RawManifest
 } from './graph'
-import { buildCommand, mapChanges } from './changes'
+import { buildCommand, downstream, mapChanges } from './changes'
 import {
   dbtEnvironment,
   deleteDotenvVar,
@@ -34,8 +37,20 @@ import {
   setDotenvVar
 } from './env'
 import { branchDiff, GitError } from './git'
+import { startMcpServer, type McpServer, type McpTool } from './mcp'
 import { findProjectDir, manifestPathFor } from './project'
-import type { BranchChanges, DbtEngine, EnvState, ProjectProblem, ProjectStatus, QualityRun } from './protocol'
+import type {
+  BranchChanges,
+  ChangedNode,
+  DbtEngine,
+  EnvState,
+  ProjectProblem,
+  ProjectStatus,
+  QualityDone,
+  QualityRun,
+  QueryResult,
+  TestResult
+} from './protocol'
 import { testArgs, TestResults } from './quality'
 import { dbtCommand, dbtError, loggedTests, parseDbtVersion, runDbt, showRows, v2ParserFailed, type DbtResult } from './runner'
 import { select, SelectorError, yamlSelectors } from './selector'
@@ -92,6 +107,13 @@ const QUALITY_LIST_LIMIT = 1000
 const testResults = new Map<string, TestResults>()
 /** The test run in progress, by project folder. */
 const testRuns = new Map<string, QualityRun>()
+/** The MCP server agents reach, once it listens: null when it is off or its port was taken. */
+let agentServer: Promise<McpServer | null> = Promise.resolve(null)
+/** Nodes one agent answer lists: enough to act on, short enough to read. */
+const AGENT_LIST_LIMIT = 200
+/** Ancestors or descendants one dbt_lineage answer lists. */
+const AGENT_LINEAGE_LIMIT = 500
+const AGENT_QUERY_ROWS = 20
 
 export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('lineage.status', () => projectStatus(orca))
@@ -239,29 +261,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     return { opened: true }
   })
 
-  orca.panels.handle('query.start', async ({ id, sql: given, testId, limit }) => {
-    const project = await loadProject(orca)
-    const { workspace, projectDir, graph } = project
-    const node = id ? graph.nodes.get(id) : undefined
-    const sql =
-      given?.trim() ||
-      (testId ? resultsFor(project).failingRowsSql(graph, testId) : null) ||
-      (node && previewSql(node.id, node.type, node.name, node.packageName))
-    if (!sql) {
-      throw Object.assign(
-        new Error(testId ? 'dbt has not compiled this test yet: run it first.' : 'Only models, seeds, snapshots and sources hold rows to preview.'),
-        { code: 'invalid_params' }
-      )
-    }
-    const rows = Math.min(Math.max(Math.trunc(limit), 1), MAX_QUERY_ROWS)
-    const args = ['show', '--inline', sql, '--limit', String(rows), '--output', 'json']
-    const jobId = startJob(orca, workspace, projectDir, args, 'query', ({ jobId, ms, run, error }) => {
-      const shown = run?.code === 0 ? showRows(run) : null
-      orca.panels.post(
-        'query.done',
-        shown ? { jobId, ok: true, ...shown, ms } : { jobId, ok: false, error: error ?? dbtError(run!), ms }
-      )
-    })
+  orca.panels.handle('query.start', async (wanted) => {
+    const { jobId, sql, done } = startQuery(orca, await loadProject(orca), wanted)
+    void done.then((result) => orca.panels.post('query.done', result))
     return { jobId, sql }
   })
 
@@ -275,49 +277,20 @@ export default function activate(orca: OrcaWorkerApi): void {
     }
   })
 
-  orca.panels.handle('quality.run', async (wanted) => {
-    const project = await loadProject(orca)
-    const { workspace, projectDir, graph } = project
-    if (testRuns.has(projectDir)) {
-      throw Object.assign(new Error('Tests are already running. Cancel them first.'), { code: 'invalid_params' })
-    }
-    const run = testArgs(graph, wanted)
-    if (!run) throw Object.assign(new Error('The manifest no longer has those tests: parse again.'), { code: 'invalid_params' })
-    const startedAt = Date.now()
-    const jobId = startJob(orca, workspace, projectDir, run.args, 'artifacts', ({ jobId, run: done, error }) => {
-      testRuns.delete(projectDir)
-      const results = resultsFor(project)
-      results.sync(graph)
-      if (done) results.correct(loggedTests(done))
-      // A run that wrote run_results.json ran its tests, failing or not; one that did not
-      // stopped before them (a compile error, a missing profile).
-      const ran = results.last && Date.parse(results.last.at) >= startedAt - 1000 ? results.last.tests : null
-      orca.panels.post(
-        'quality.done',
-        ran !== null && !error ? { jobId, ok: true, ran } : { jobId, ok: false, ran: 0, error: error ?? dbtError(done!) }
-      )
-    })
-    const running = { jobId, label: run.label, startedAt }
-    testRuns.set(projectDir, running)
-    return running
-  })
+  orca.panels.handle('quality.run', async (wanted) => startTests(orca, await loadProject(orca), wanted).running)
 
-  orca.panels.handle('project.parse', async () => {
-    const { workspace, projectDir } = await locateProject(orca)
-    const jobId = startJob(orca, workspace, projectDir, ['parse'], 'artifacts', ({ jobId, run, error }) => {
-      orca.panels.post(
-        'parse.done',
-        run?.code === 0 ? { jobId, ok: true } : { jobId, ok: false, error: error ?? dbtError(run!) }
-      )
-    })
-    return { jobId }
-  })
+  orca.panels.handle('project.parse', async () => ({ jobId: startParse(orca, await locateProject(orca)).jobId }))
 
   orca.panels.handle('query.cancel', async ({ jobId }) => {
     const controller = jobs.get(jobId)
     controller?.abort()
     return { cancelled: controller !== undefined }
   })
+
+  // Agents reach the same project over MCP. A port already taken (a second Orca, a development
+  // copy of the plugin) is logged, and the panel works as before.
+  void serveAgents(orca)
+  orca.settings.onDidChange(() => void serveAgents(orca))
 }
 
 /** Tells open panels to focus the node a saved file of the focused project holds. */
@@ -330,35 +303,36 @@ async function revealSaved(orca: OrcaWorkerApi, path: string): Promise<void> {
   if (id) orca.panels.post('lineage.reveal', { id })
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   for (const controller of jobs.values()) controller.abort()
+  agentServer = agentServer.then((server) => server?.close()).then(() => null)
+  await agentServer
 }
 
 /** How a background dbt run ended: its output, or why it never finished. */
 type JobOutcome = { jobId: string; ms: number; run?: DbtResult; error?: string }
 
 /**
- * Runs `dbt <args>` in the background with JSON logs and hands `settle` the outcome. A query
+ * Runs `dbt <args>` in the background with JSON logs; `done` resolves with the outcome. A query
  * (`dbt show`) runs the dbt command and writes nothing to target/; an artifacts run (tests,
  * parse) runs the parse and test command when set (a wrapper such as `just dbt`) and waits for
  * the project's previous one. With the v2 parser setting on, parses with it unless it failed on
  * the project before; a run it fails is repeated with dbt-core's own parser. Answers the job id
  * at once: a warehouse query can outlast a panel request's timeout.
  */
-function startJob(
+function runJob(
   orca: OrcaWorkerApi,
   workspace: Workspace,
   projectDir: string,
   args: string[],
-  kind: 'query' | 'artifacts',
-  settle: (outcome: JobOutcome) => void
-): string {
+  kind: 'query' | 'artifacts'
+): { jobId: string; done: Promise<JobOutcome> } {
   const jobId = randomUUID()
   const controller = new AbortController()
   jobs.set(jobId, controller)
   const timer = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS)
   const started = Date.now()
-  void (async () => {
+  const done = (async () => {
     let outcome: JobOutcome
     let release = () => {}
     try {
@@ -399,9 +373,88 @@ function startJob(
       clearTimeout(timer)
       jobs.delete(jobId)
     }
-    settle(outcome)
+    return outcome
   })()
-  return jobId
+  return { jobId, done }
+}
+
+/**
+ * Starts `sql` (Jinja allowed), the rows test `testId` found, or a preview of node `id`, as
+ * `dbt show`; `done` resolves with the rows or the error.
+ */
+function startQuery(
+  orca: OrcaWorkerApi,
+  project: Project,
+  { id, sql: given, testId, limit }: { id?: string; sql?: string; testId?: string; limit: number }
+): { jobId: string; sql: string; done: Promise<QueryResult> } {
+  const { workspace, projectDir, graph } = project
+  const node = id ? graph.nodes.get(id) : undefined
+  const sql =
+    given?.trim() ||
+    (testId ? resultsFor(project).failingRowsSql(graph, testId) : null) ||
+    (node && previewSql(node.id, node.type, node.name, node.packageName))
+  if (!sql) {
+    throw Object.assign(
+      new Error(testId ? 'dbt has not compiled this test yet: run it first.' : 'Only models, seeds, snapshots and sources hold rows to preview.'),
+      { code: 'invalid_params' }
+    )
+  }
+  const rows = Math.min(Math.max(Math.trunc(limit), 1), MAX_QUERY_ROWS)
+  const job = runJob(orca, workspace, projectDir, ['show', '--inline', sql, '--limit', String(rows), '--output', 'json'], 'query')
+  const done = job.done.then(({ jobId, ms, run, error }): QueryResult => {
+    const shown = run?.code === 0 ? showRows(run) : null
+    return shown ? { jobId, ok: true, ...shown, ms } : { jobId, ok: false, error: error ?? dbtError(run!), ms }
+  })
+  return { jobId: job.jobId, sql, done }
+}
+
+/**
+ * Starts `dbt test` on what `wanted` names (see `testArgs`), one run at a time per project.
+ * When it ends, open panels hear `quality.done` (whoever started it) and `done` resolves with the same.
+ */
+function startTests(
+  orca: OrcaWorkerApi,
+  project: Project,
+  wanted: { nodeId?: string; selector?: string; testIds?: string[] }
+): { running: QualityRun; done: Promise<QualityDone> } {
+  const { workspace, projectDir, graph } = project
+  if (testRuns.has(projectDir)) {
+    throw Object.assign(new Error('Tests are already running. Cancel them first.'), { code: 'invalid_params' })
+  }
+  const run = testArgs(graph, wanted)
+  if (!run) throw Object.assign(new Error('The manifest no longer has those tests: parse again.'), { code: 'invalid_params' })
+  const startedAt = Date.now()
+  const job = runJob(orca, workspace, projectDir, run.args, 'artifacts')
+  const running = { jobId: job.jobId, label: run.label, startedAt }
+  testRuns.set(projectDir, running)
+  const done = job.done.then(({ jobId, run: ended, error }): QualityDone => {
+    testRuns.delete(projectDir)
+    const results = resultsFor(project)
+    results.sync(graph)
+    if (ended) results.correct(loggedTests(ended))
+    // A run that wrote run_results.json ran its tests, failing or not; one that did not
+    // stopped before them (a compile error, a missing profile).
+    const ran = results.last && Date.parse(results.last.at) >= startedAt - 1000 ? results.last.tests : null
+    const outcome: QualityDone =
+      ran !== null && !error ? { jobId, ok: true, ran } : { jobId, ok: false, ran: 0, error: error ?? dbtError(ended!) }
+    orca.panels.post('quality.done', outcome)
+    return outcome
+  })
+  return { running, done }
+}
+
+/** Starts `dbt parse`; open panels hear `parse.done` and `done` resolves with the same. */
+function startParse(
+  orca: OrcaWorkerApi,
+  { workspace, projectDir }: Location
+): { jobId: string; done: Promise<{ jobId: string; ok: boolean; error?: string }> } {
+  const job = runJob(orca, workspace, projectDir, ['parse'], 'artifacts')
+  const done = job.done.then(({ jobId, run, error }) => {
+    const outcome = run?.code === 0 ? { jobId, ok: true } : { jobId, ok: false, error: error ?? dbtError(run!) }
+    orca.panels.post('parse.done', outcome)
+    return outcome
+  })
+  return { jobId: job.jobId, done }
 }
 
 /** Waits for `promise`, or rejects when `signal` aborts first. */
@@ -435,17 +488,33 @@ async function projectStatus(orca: OrcaWorkerApi): Promise<ProjectStatus> {
   }
 }
 
-/** The focused workspace and its dbt project folder, without reading the manifest. */
-async function locateProject(orca: OrcaWorkerApi): Promise<Location> {
-  const context = await orca.host.call('workspace.readContext')
-  if (!context?.workspaceId) {
-    throw new ProjectError('no_workspace', 'Open a workspace to see its dbt lineage.')
-  }
+/**
+ * The focused workspace, or the one that holds folder `cwd` (an agent says where it works; the
+ * person may be looking at another workspace), and its dbt project folder, without reading the manifest.
+ */
+async function locateProject(orca: OrcaWorkerApi, cwd?: string): Promise<Location> {
   const { workspaces } = await orca.host.call('workspace.list')
-  const workspace = workspaces.find((row) => row.id === context.workspaceId)
-  if (!workspace) {
-    orca.log(`workspace ${context.workspaceId} is not in workspace.list`)
-    throw new ProjectError('no_workspace', `Orca did not list the workspace "${context.displayName}".`)
+  let workspace: Workspace | undefined
+  if (cwd) {
+    // The deepest one: a worktree can sit inside another workspace's folder.
+    workspace = workspaces
+      .filter((row) => (row.hostId === null || row.hostId === 'local') && !relative(row.path, cwd).startsWith('..'))
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!workspace) {
+      // An agent started outside Orca: its folder stands in for a workspace.
+      if (!isAbsolute(cwd) || !existsSync(cwd)) throw new ProjectError('no_workspace', `"${cwd}" is not a folder on this computer.`)
+      workspace = { id: cwd, name: basename(cwd), path: cwd, hostId: null }
+    }
+  } else {
+    const context = await orca.host.call('workspace.readContext')
+    if (!context?.workspaceId) {
+      throw new ProjectError('no_workspace', 'Open a workspace to see its dbt lineage.')
+    }
+    workspace = workspaces.find((row) => row.id === context.workspaceId)
+    if (!workspace) {
+      orca.log(`workspace ${context.workspaceId} is not in workspace.list`)
+      throw new ProjectError('no_workspace', `Orca did not list the workspace "${context.displayName}".`)
+    }
   }
   if (workspace.hostId !== null && workspace.hostId !== 'local') {
     throw new ProjectError('remote', 'dbt lineage reads files on this computer; this workspace is on another host.')
@@ -498,8 +567,8 @@ async function envState(orca: OrcaWorkerApi): Promise<EnvState> {
 }
 
 /** The branch's changes mapped onto the manifest, with what they reach downstream. */
-async function branchChanges(orca: OrcaWorkerApi): Promise<BranchChanges> {
-  const { projectDir, manifestPath, graph } = await loadProject(orca)
+async function branchChanges(orca: OrcaWorkerApi, cwd?: string): Promise<BranchChanges> {
+  const { projectDir, manifestPath, graph } = await loadProject(orca, cwd)
   const diff = await branchDiff(projectDir, await stringSetting(orca, 'baseBranch'))
   const mapped = mapChanges(graph, diff.files)
   // An edited file newer than the manifest may hold models or refs the manifest lacks yet.
@@ -531,8 +600,8 @@ function resultsFor({ projectDir, manifestPath }: Location): TestResults {
   return results
 }
 
-async function loadProject(orca: OrcaWorkerApi): Promise<Project> {
-  const location = await locateProject(orca)
+async function loadProject(orca: OrcaWorkerApi, cwd?: string): Promise<Project> {
+  const location = await locateProject(orca, cwd)
   const { workspace, manifestPath } = location
   const graph = await readGraph(manifestPath).catch((error: NodeJS.ErrnoException) => {
     const where = relative(workspace.path, manifestPath)
@@ -566,4 +635,354 @@ async function readGraph(manifestPath: string): Promise<Graph> {
     if (manifests.get(manifestPath) === entry) manifests.delete(manifestPath)
   })
   return graph
+}
+
+/**
+ * Starts the MCP server on the "MCP server port" setting, or moves it when the setting changed;
+ * 0 turns it off. Calls take turns, so two setting changes never start two servers.
+ */
+function serveAgents(orca: OrcaWorkerApi): Promise<unknown> {
+  agentServer = agentServer.then(async (current) => {
+    const setting = await orca.settings.get('mcpPort').catch(() => undefined)
+    const port = typeof setting === 'number' && Number.isInteger(setting) && setting > 0 && setting < 65536 ? setting : 0
+    if (current?.port === port) return current
+    await current?.close()
+    if (port === 0) return null
+    try {
+      const server = await startMcpServer(port, {
+        name: 'orca-dbt',
+        version: pluginVersion(),
+        instructions:
+          'The dbt project of an Orca workspace, read from its manifest and run with its own dbt. Pass `workspace`, the absolute path of the folder you work in, to every tool: without it they answer for the workspace the person has focused in Orca, which may not be yours. After editing models, dbt_impact shows what the branch changed and everything downstream, and dbt_run_tests tests it. When dbt_impact says manifestStale, or a node you added is missing, call dbt_parse first.',
+        tools: agentTools(orca)
+      })
+      orca.log(`MCP server at http://127.0.0.1:${server.port}/mcp`)
+      return server
+    } catch (error) {
+      orca.log(`MCP server not started on port ${port}: ${error instanceof Error ? error.message : String(error)}`)
+      return null
+    }
+  })
+  return agentServer
+}
+
+function pluginVersion(): string {
+  try {
+    const manifest = JSON.parse(readFileSync(new URL('../orca-plugin.json', import.meta.url), 'utf8')) as { version?: string }
+    return manifest.version ?? '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
+/** A text argument, trimmed; undefined when left out or empty. */
+function textArg(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string') throw new Error(`${key} must be text.`)
+  return value.trim() || undefined
+}
+
+/** A whole-number argument between 0 and `max`; `fallback` when left out. */
+function countArg(args: Record<string, unknown>, key: string, fallback: number, max: number): number {
+  const value = args[key]
+  if (value === undefined || value === null) return fallback
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${key} must be a number.`)
+  return Math.min(Math.max(Math.trunc(value), 0), max)
+}
+
+/** The node an agent named, or an error that says what it could have meant. */
+function namedNode(graph: Graph, reference: string) {
+  const node = resolveNode(graph, reference)
+  if (node) return node
+  const near = search(graph, reference, 5).map((found) => found.id)
+  throw new Error(
+    `The manifest has no node "${reference}".${near.length > 0 ? ` Did you mean: ${near.join(', ')}?` : ''} A node added since the last parse appears after dbt_parse.`
+  )
+}
+
+/** A test as an agent reads it: what it checks, how it last ran, and what it found. */
+function briefTest(test: TestResult) {
+  return {
+    id: test.id,
+    test: test.label,
+    kind: test.kind,
+    node: test.node?.name ?? null,
+    column: test.column,
+    status: test.status ?? 'never ran',
+    failures: test.failures,
+    message: test.message,
+    at: test.at,
+    /** dbt_query with test_id shows the rows it found. */
+    hasFailingRows: test.rows
+  }
+}
+
+const brief = ({ id, name, type }: { id: string; name: string; type: string }) => ({ id, name, type })
+
+/** What agents can do over MCP: the panel's catalog, lineage, changes, tests and queries, each answered in one call. */
+function agentTools(orca: OrcaWorkerApi): McpTool[] {
+  const workspace = {
+    workspace: {
+      type: 'string',
+      description: 'Absolute path of the folder you work in (your worktree or repository). Leave out for the workspace focused in Orca.'
+    }
+  }
+  const nodeRef = 'A node by name (orders; raw.orders for a source) or unique id (model.shop.orders).'
+  const project = (args: Record<string, unknown>) => loadProject(orca, textArg(args, 'workspace'))
+  /** Stops job `jobId` when the agent stops waiting for it. */
+  const stopWith = (signal: AbortSignal, jobId: string) => signal.addEventListener('abort', () => jobs.get(jobId)?.abort(), { once: true })
+
+  return [
+    {
+      name: 'dbt_project',
+      description:
+        'The dbt project of the workspace: its name and folder, when its manifest was written, how many nodes of each type and tests it has, and its YAML selectors. Start here; an error says what is missing (no project, no manifest yet).',
+      input: { properties: workspace },
+      readOnly: true,
+      run: async (args) => {
+        const { projectDir, graph } = await project(args)
+        const nodes: Record<string, number> = {}
+        for (const node of graph.nodes.values()) nodes[node.type] = (nodes[node.type] ?? 0) + 1
+        return {
+          project: graph.projectName,
+          folder: projectDir,
+          manifestWrittenAt: graph.generatedAt,
+          dbtVersion: graph.dbtVersion,
+          nodes,
+          tests: graph.tests.size,
+          selectors: yamlSelectors(graph).map((selector) => selector.name)
+        }
+      }
+    },
+    {
+      name: 'dbt_search',
+      description: 'Finds models, sources, seeds, snapshots and exposures by name, id, column name or description; best match first.',
+      input: {
+        properties: { query: { type: 'string' }, limit: { type: 'integer', description: 'Default 30.' }, ...workspace },
+        required: ['query']
+      },
+      readOnly: true,
+      run: async (args) => search((await project(args)).graph, textArg(args, 'query') ?? '', countArg(args, 'limit', DEFAULT_SEARCH_LIMIT, AGENT_LIST_LIMIT))
+    },
+    {
+      name: 'dbt_node',
+      description:
+        'One node in full: its file, relation, materialization, description, tags, owner, meta, columns with types and tests, direct parents and children, and the latest result of each of its tests.',
+      input: { properties: { node: { type: 'string', description: nodeRef }, ...workspace }, required: ['node'] },
+      readOnly: true,
+      run: async (args) => {
+        const loaded = await project(args)
+        const { graph } = loaded
+        const { id } = namedNode(graph, textArg(args, 'node') ?? '')
+        const results = resultsFor(loaded)
+        results.sync(graph)
+        const found = focus(graph, id)!
+        return {
+          ...found.node,
+          parents: found.parents.map(brief),
+          children: found.children.map(brief),
+          tests: results.report(graph, { nodeId: id }, AGENT_LIST_LIMIT).tests.map(briefTest)
+        }
+      }
+    },
+    {
+      name: 'dbt_lineage',
+      description:
+        'Everything upstream and downstream of a node, nearest first, each with its distance in edges. Downstream is what a change to the node can break (exposures are the dashboards and apps that read it).',
+      input: {
+        properties: {
+          node: { type: 'string', description: nodeRef },
+          upstream: { type: 'integer', description: 'Levels of ancestors; all of them by default, 0 for none.' },
+          downstream: { type: 'integer', description: 'Levels of descendants; all of them by default, 0 for none.' },
+          ...workspace
+        },
+        required: ['node']
+      },
+      readOnly: true,
+      run: async (args) => {
+        const { graph } = await project(args)
+        const { id } = namedNode(graph, textArg(args, 'node') ?? '')
+        const walk = (direction: 'up' | 'down', key: string) => {
+          const { nodes, truncated } = reach(graph, id, direction, countArg(args, key, Infinity, Infinity), AGENT_LINEAGE_LIMIT)
+          return { nodes: nodes.map((node) => ({ ...brief(node), depth: node.depth })), ...(truncated ? { truncated } : {}) }
+        }
+        return { node: brief(summarize(graph, id)), upstream: walk('up', 'upstream'), downstream: walk('down', 'downstream') }
+      }
+    },
+    {
+      name: 'dbt_select',
+      description:
+        'The nodes a dbt selector chooses, evaluated on the manifest without running dbt: `+orders+`, `tag:finance,config.materialized:table`, `path:models/marts --exclude stg_*`, `selector:nightly`. Not supported: state:, result:, source_status:, test_name:, test_type:.',
+      input: {
+        properties: { selector: { type: 'string' }, limit: { type: 'integer', description: `Default ${AGENT_LIST_LIMIT}.` }, ...workspace },
+        required: ['selector']
+      },
+      readOnly: true,
+      run: async (args) => {
+        const { graph } = await project(args)
+        const ids = [...select(graph, textArg(args, 'selector') ?? '')]
+        return { count: ids.length, nodes: ids.slice(0, countArg(args, 'limit', AGENT_LIST_LIMIT, 5000)).map((id) => brief(summarize(graph, id))) }
+      }
+    },
+    {
+      name: 'dbt_impact',
+      description:
+        "Impact analysis. Without `nodes`: what the branch changed since its base (committed, uncommitted and untracked files, mapped to nodes: added, modified, yaml for a changed .yml, macro for a changed macro it calls), every node downstream of that, the exposures reached, and a selector that builds and tests exactly that. With `nodes`: the same for a change to those nodes, whatever git says. manifestStale means a changed file is newer than the manifest: call dbt_parse, then ask again.",
+      input: {
+        properties: {
+          nodes: { type: 'array', items: { type: 'string' }, description: `Nodes you plan to change, instead of the branch's changes. ${nodeRef}` },
+          ...workspace
+        }
+      },
+      readOnly: true,
+      run: async (args) => {
+        const cwd = textArg(args, 'workspace')
+        const named = Array.isArray(args.nodes) ? args.nodes.map(String) : []
+        const { graph } = await loadProject(orca, cwd)
+        let changes: { changed: ChangedNode[]; impacted: { id: string; name: string; type: string }[]; command: string | null }
+        let fromGit = {}
+        if (named.length > 0) {
+          const changed = named.map((reference) => ({ ...summarize(graph, namedNode(graph, reference).id), change: 'modified' as const, files: [] }))
+          const impacted = [...downstream(graph, new Set(changed.map((node) => node.id)))].map((id) => summarize(graph, id))
+          changes = { changed, impacted, command: buildCommand(graph, changed) }
+        } else {
+          const found = await branchChanges(orca, cwd)
+          if (!found.ok) throw new Error(found.message)
+          const { head, base, mergeBase, removed, unmapped, manifestStale } = found
+          changes = found
+          fromGit = { head, base, mergeBase, removedFiles: removed, filesOfNoNode: unmapped, manifestStale }
+        }
+        const reached = new Set([...changes.changed, ...changes.impacted].map((node) => node.id))
+        // A command cut short ends with an ellipsis: no selector then, rather than half of one.
+        const selector = changes.command && !changes.command.endsWith('…') ? changes.command.replace('dbt build --select ', '') : null
+        return {
+          ...fromGit,
+          changed: changes.changed.map((node) => ({ ...brief(node), ...(named.length > 0 ? {} : { change: node.change, files: node.files }) })),
+          downstream: changes.impacted.slice(0, AGENT_LINEAGE_LIMIT).map(brief),
+          downstreamCount: changes.impacted.length,
+          exposures: [...changes.changed, ...changes.impacted].filter((node) => node.type === 'exposure').map((node) => node.name),
+          tests: [...graph.tests.values()].filter((test) => test.nodeId !== null && reached.has(test.nodeId)).length,
+          /** For dbt_run_tests, or `dbt build --select <selector>` in a terminal. */
+          selector,
+          buildCommand: changes.command
+        }
+      }
+    },
+    {
+      name: 'dbt_test_results',
+      description:
+        "The latest result of the project's data and unit tests, from target/run_results.json (runs from a terminal count): counts by status, and the failing, erroring and warning tests, worst first. With `node`, that node's tests; with `all`, every test. Runs nothing.",
+      input: {
+        properties: { node: { type: 'string', description: nodeRef }, all: { type: 'boolean' }, ...workspace }
+      },
+      readOnly: true,
+      run: async (args) => {
+        const loaded = await project(args)
+        const { graph } = loaded
+        const node = textArg(args, 'node')
+        const results = resultsFor(loaded)
+        results.sync(graph)
+        const report = results.report(graph, { all: args.all === true, nodeId: node && namedNode(graph, node).id }, AGENT_LIST_LIMIT)
+        return {
+          counts: report.counts,
+          lastRun: report.lastRun,
+          running: testRuns.get(loaded.projectDir)?.label ?? null,
+          tests: report.tests.map(briefTest),
+          ...(report.more > 0 ? { more: report.more } : {})
+        }
+      }
+    },
+    {
+      name: 'dbt_run_tests',
+      description:
+        "Runs `dbt test` with the project's own dbt, on the warehouse of its profile, and waits for it: on one node's tests (`node`), on a dbt selector (`selector`, such as the one dbt_impact gives, or `selector:nightly`), on the tests `test_ids` (to re-run failing ones), or on every test when none is given. Answers with counts by status and each failing, erroring or warning test with its message. It tests what is built in the warehouse: build changed models first (`dbt build --select …` in a terminal). One run at a time per project; it can take minutes.",
+      input: {
+        properties: {
+          node: { type: 'string', description: nodeRef },
+          selector: { type: 'string', description: 'A dbt selector: `stg_orders+`, `tag:finance --exclude orders`, `selector:nightly`.' },
+          test_ids: { type: 'array', items: { type: 'string' }, description: 'Test unique ids, as dbt_test_results lists them.' },
+          ...workspace
+        }
+      },
+      readOnly: false,
+      run: async (args, signal) => {
+        const loaded = await project(args)
+        const { graph } = loaded
+        const node = textArg(args, 'node')
+        const started = startTests(orca, loaded, {
+          nodeId: node && namedNode(graph, node).id,
+          selector: textArg(args, 'selector'),
+          testIds: Array.isArray(args.test_ids) && args.test_ids.length > 0 ? args.test_ids.map(String) : undefined
+        })
+        stopWith(signal, started.running.jobId)
+        const done = await started.done
+        if (!done.ok) throw new Error(done.error ?? 'dbt test stopped before running any test.')
+        // The tests of this run are those whose result carries its time.
+        const results = resultsFor(loaded)
+        const ran = results.report(graph, { all: true }, Infinity).tests.filter((test) => test.at === results.last?.at)
+        const counts: Record<string, number> = {}
+        for (const test of ran) counts[test.status ?? 'never ran'] = (counts[test.status ?? 'never ran'] ?? 0) + 1
+        const problems = ran.filter((test) => test.status === 'error' || test.status === 'fail' || test.status === 'warn')
+        return {
+          ran: done.ran,
+          counts,
+          problems: problems.slice(0, AGENT_LIST_LIMIT).map(briefTest),
+          ...(problems.length > AGENT_LIST_LIMIT ? { more: problems.length - AGENT_LIST_LIMIT } : {})
+        }
+      }
+    },
+    {
+      name: 'dbt_query',
+      description:
+        "Runs a query on the warehouse through the project's own dbt (`dbt show`), so with its profile and credentials, and answers with the rows: `sql` (a select; Jinja works: `select count(*) from {{ ref('orders') }}`), or the first rows of `node`, or the rows a failing test found (`test_id`).",
+      input: {
+        properties: {
+          sql: { type: 'string' },
+          node: { type: 'string', description: `Preview this model, seed, snapshot or source. ${nodeRef}` },
+          test_id: { type: 'string', description: 'The unique id of a failing or warning test.' },
+          limit: { type: 'integer', description: `Rows to return; default ${AGENT_QUERY_ROWS}, at most ${MAX_QUERY_ROWS}.` },
+          ...workspace
+        }
+      },
+      readOnly: false,
+      run: async (args, signal) => {
+        const loaded = await project(args)
+        const sql = textArg(args, 'sql')
+        const testId = textArg(args, 'test_id')
+        const node = textArg(args, 'node')
+        if (!sql && !testId && !node) throw new Error('Give sql, node or test_id.')
+        const query = startQuery(orca, loaded, {
+          sql,
+          testId,
+          id: node && namedNode(loaded.graph, node).id,
+          limit: countArg(args, 'limit', AGENT_QUERY_ROWS, MAX_QUERY_ROWS)
+        })
+        stopWith(signal, query.jobId)
+        const result = await query.done
+        if (!result.ok) throw new Error(result.error)
+        return { sql: query.sql, columns: result.columns, rows: result.rows, truncated: result.truncated, ms: result.ms }
+      }
+    },
+    {
+      name: 'dbt_parse',
+      description:
+        "Runs `dbt parse` to rewrite target/manifest.json, so models, columns, tests and refs added or changed since the last parse show up in the other tools. Waits for it: seconds on a small project, a minute or more on a large one.",
+      input: { properties: workspace },
+      readOnly: false,
+      run: async (args, signal) => {
+        const cwd = textArg(args, 'workspace')
+        const parse = startParse(orca, await locateProject(orca, cwd))
+        stopWith(signal, parse.jobId)
+        const done = await parse.done
+        // dbt v2 can fail a parse and still write the manifest: say both.
+        const written = await loadProject(orca, cwd).then(
+          ({ graph }) => ({ manifestWrittenAt: graph.generatedAt, nodes: graph.nodes.size }),
+          () => null
+        )
+        if (!done.ok) throw new Error(`${done.error ?? 'dbt parse failed.'}${written ? `\n(The manifest is readable: written ${written.manifestWrittenAt}.)` : ''}`)
+        return { ok: true, ...written }
+      }
+    }
+  ]
 }

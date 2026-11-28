@@ -1,6 +1,7 @@
 // Runs src/worker.ts's activate(orca) over a mock host, against the fixture dbt project.
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -34,7 +35,7 @@ async function posted(worker: { posts: readonly { event: string; payload?: unkno
 
 function fixtureHost(
   options: {
-    settings?: { projectDir: string; dbtCommand?: string; parseTestCommand?: string }
+    settings?: { projectDir: string; dbtCommand?: string; parseTestCommand?: string; mcpPort?: number }
     context?: typeof context | null
   } = {}
 ) {
@@ -259,4 +260,66 @@ test('says why there is no lineage', async () => {
   assert.equal((await misconfigured.request('project.choose', { folder: ' analytics ' })).ok, true)
   assert.equal((await misconfigured.request('lineage.status')).ok, true)
   await misconfigured.deactivate()
+})
+
+/** A port nothing listens on. */
+function freePort(): Promise<number> {
+  return new Promise((resolve) => {
+    const probe = createServer().listen(0, '127.0.0.1', () => {
+      const { port } = probe.address() as { port: number }
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+test('answers agents over MCP for the workspace they name', async () => {
+  const mcpPort = await freePort()
+  // No workspace is focused: the agent's folder says which project it means.
+  const worker = await mountWorker(main, { host: fixtureHost({ settings: { projectDir: '', dbtCommand: fakeDbt, mcpPort }, context: null }) })
+  let id = 0
+  const call = async (name: string, args: Record<string, unknown>) => {
+    for (let waited = 0; ; waited += 10) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${mcpPort}/mcp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } })
+        })
+        const { result } = (await response.json()) as { result: { content: { text: string }[]; isError?: boolean } }
+        return result.isError ? { error: result.content[0].text } : JSON.parse(result.content[0].text)
+      } catch (error) {
+        // The server starts after activate returns.
+        if (waited >= 2000) throw error
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+    }
+  }
+  const workspace = join(root, 'analytics', 'models')
+
+  assert.match((await call('dbt_project', {})).error, /Open a workspace/)
+  const project = await call('dbt_project', { workspace })
+  assert.deepEqual([project.project, project.folder], ['shop', join(root, 'analytics')])
+
+  const impact = await call('dbt_impact', { workspace, nodes: ['stg_orders'] })
+  assert.deepEqual(impact.changed, [{ id: 'model.shop.stg_orders', name: 'stg_orders', type: 'model' }])
+  assert.deepEqual(impact.downstream.map((node: { name: string }) => node.name).sort(), ['customers', 'orders', 'weekly_dashboard'])
+  assert.deepEqual(impact.exposures, ['weekly_dashboard'])
+  assert.equal(impact.selector, 'stg_orders+')
+
+  const lineage = await call('dbt_lineage', { workspace, node: 'orders', downstream: 1 })
+  assert.deepEqual(
+    lineage.upstream.nodes.map((node: { name: string; depth: number }) => [node.name, node.depth]),
+    [['stg_orders', 1], ['raw.orders', 2]]
+  )
+  assert.deepEqual(lineage.downstream.nodes.map((node: { name: string }) => node.name).sort(), ['customers', 'weekly_dashboard'])
+  assert.match((await call('dbt_node', { workspace, node: 'order' })).error, /Did you mean: model\.shop\.orders/)
+
+  const rows = await call('dbt_query', { workspace, node: 'orders' })
+  assert.deepEqual([rows.sql, rows.columns, rows.rows], [
+    "select * from {{ ref('shop', 'orders') }}",
+    ['greeting', 'folder'],
+    [['hello from .env', 'analytics']]
+  ])
+  await worker.deactivate()
+  await assert.rejects(fetch(`http://127.0.0.1:${mcpPort}/mcp`))
 })

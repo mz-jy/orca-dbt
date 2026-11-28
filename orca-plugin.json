@@ -81,6 +81,13 @@
         "description": "Parse with dbt-core's Rust v2 parser (dbt-core 1.12 and later) for previews, tests and parse. It reparses the whole project on every run and deletes target/partial_parse.msgpack, so your next dbt run in a terminal reparses in full. When it fails on the project, the run is repeated with dbt-core's own parser, which the project then keeps until Orca restarts.",
         "type": "boolean",
         "default": false
+      },
+      {
+        "key": "mcpPort",
+        "title": "MCP server port",
+        "description": "Coding agents reach the project's lineage, impact analysis, tests and queries over MCP at http://127.0.0.1:<port>/mcp while the plugin is enabled. Only this computer can connect. Set 0 to turn the server off.",
+        "type": "number",
+        "default": 7433
       }
     ]
   },
