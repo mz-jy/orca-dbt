@@ -33,6 +33,10 @@ the lineage graph in the middle and the node in hand on the right. They move tog
 - **Quality**: the latest result of every data and unit test (from `target/run_results.json`,
   so runs from a terminal count), problems first. Run them all, re-run the failing ones, query
   the rows a test found, or draw the nodes with problems. Failing nodes are flagged everywhere.
+  Below the tests, **Source freshness**: each source with a `warn_after` or `error_after` rule,
+  when it last received data and whether it is fresh, late or stale (from `target/sources.json`),
+  with **Check** to run `dbt source freshness`. A late or stale source is flagged like a failing
+  test, and its details show the rule and the last load.
 - **Details**: the node's type, relation and actions, then **Overview** (description in
   Markdown, tags, owner, properties, meta, upstream and downstream), **Columns** with their
   types and tests, **Tests** with their latest results, and **Data**: preview rows or run SQL
@@ -142,6 +146,7 @@ or, in a project's `.mcp.json` (other agents take the same URL in their own MCP 
 | `dbt_impact`       | what the branch changed (or the nodes you name), all it reaches downstream, the exposures affected, and a selector that builds and tests exactly that |
 | `dbt_test_results` | the latest result of every test, problems first                                          |
 | `dbt_run_tests`    | runs `dbt test` on a node, a selector, named tests or everything, and waits for the results |
+| `dbt_source_freshness` | when each source last received data and whether it is fresh, late or stale; with `check`, runs `dbt source freshness` first |
 | `dbt_query`        | rows from the warehouse: your SQL (`{{ ref() }}` works), a node's preview, or what a failing test found |
 | `dbt_parse`        | runs `dbt parse` so new models and refs appear                                           |
 
@@ -177,7 +182,7 @@ computer), and selector methods that need run artifacts (`state:`, `result:`,
 ## Try it on the demo project
 
 `demo/` is a small dbt project on DuckDB (a coffee shop: sources, staging, marts, an exposure,
-data and unit tests, a few of them failing on purpose). Build it with dbt-core (dbt Fusion's
+data and unit tests, a few of them failing on purpose, and a stale source). Build it with dbt-core (dbt Fusion's
 preview builds it too, but errors on its unit test and skips what depends on it):
 
 ```sh
@@ -204,6 +209,8 @@ orca plugin dev watch .    # loads this folder into Orca, streams logs, reloads 
 | `src/runner.ts`              | finding and running the project's dbt, reading its JSON logs       |
 | `src/git.ts`                 | the branch's changed files since its merge base                    |
 | `src/changes.ts`             | changed files onto nodes, what they reach, the build command (pure) |
+| `src/quality.ts`             | test results: run_results.json merged into each test's latest result |
+| `src/freshness.ts`           | source freshness: the manifest's rules and target/sources.json     |
 | `src/protocol.ts`            | the requests and events between the page and the worker            |
 | `src/mcp.ts`                 | the MCP server agents connect to; its tools are in `src/worker.ts` |
 | `ui/index.html`, `ui/app.ts` | the page: layout, state, and what each click does                  |

@@ -8,7 +8,18 @@ sources:
     tables:
       - name: customers
         description: Loyalty-card holders.
+        # Sign-ups trickle in: fresh as long as one arrived in the last ten years.
+        config:
+          loaded_at_field: "cast(signed_up_at as timestamp)"
+          freshness:
+            warn_after: {count: 3650, period: day}
       - name: orders
         description: Every order rung up at the three stores.
+        # The export stopped in March: `dbt source freshness` reports it stale, on purpose.
+        config:
+          loaded_at_field: "cast(ordered_at as timestamp)"
+          freshness:
+            warn_after: {count: 12, period: hour}
+            error_after: {count: 2, period: day}
       - name: payments
         description: Payments against orders; an order can be split across two.

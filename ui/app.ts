@@ -121,7 +121,8 @@ const modelView = new ModelView(detailsElement, {
   openFile: (id) => void openFile(id),
   selectTag: (tag) => void applySelector(`tag:${tag}`),
   openEnv: (key) => void envView.open(key),
-  runTests: (id) => void runTests({ nodeId: id })
+  runTests: (id) => void runTests({ nodeId: id }),
+  checkFreshness: (id) => void runTests({ freshnessOf: id })
 })
 
 const envView = new EnvView(byId<HTMLDialogElement>('env-dialog'), (env) => modelView.setEnv(env))
@@ -132,6 +133,7 @@ const qualityView = new QualityView(byId<HTMLElement>('quality'), {
   show: (id) => void showNode(id),
   rows: (nodeId, testId) => void showNode(nodeId).then(() => modelView.showTestRows(testId)),
   draw: (selector) => void applySelector(selector, { keepSide: true }),
+  checkFreshness: () => void runTests({ freshnessOf: null }),
   listAll: (all) => {
     state.qualityAll = all
     localStorage.setItem('qualityAll', all ? '1' : '0')
@@ -311,18 +313,23 @@ async function loadQuality(): Promise<void> {
     catalogView.setFlags(report.flags)
     changesView.setFlags(report.flags)
     modelView.setTestRun(report.running)
-    state.problems = report.counts.error + report.counts.fail + report.counts.warn
+    const stale = report.freshness.counts
+    state.problems = report.counts.error + report.counts.fail + report.counts.warn + stale.error + stale.fail + stale.warn
     renderTabs()
   } catch (cause) {
     qualityView.showMessage("Can't read test results", errorMessage(cause), 'warning')
   }
 }
 
-async function runTests(wanted: { nodeId?: string; selector?: string; testIds?: string[] }): Promise<void> {
+/** Starts a test run, or with `freshnessOf` a freshness check of that source (null: every source). */
+async function runTests(wanted: { nodeId?: string; selector?: string; testIds?: string[]; freshnessOf?: string | null }): Promise<void> {
   state.qualityError = null
   let running: QualityRun | null = null
   try {
-    running = await orca.plugin.request('quality.run', wanted)
+    running =
+      wanted.freshnessOf === undefined
+        ? await orca.plugin.request('quality.run', wanted)
+        : await orca.plugin.request('quality.freshness', { nodeId: wanted.freshnessOf ?? undefined })
   } catch (cause) {
     state.qualityError = errorMessage(cause)
   }
@@ -832,7 +839,7 @@ orca.plugin.on('parse.done', (done) => {
 })
 
 orca.plugin.on('quality.done', (done) => {
-  state.qualityError = done.ok ? null : (done.error ?? 'dbt test stopped before running any test.')
+  state.qualityError = done.ok ? null : (done.error ?? 'dbt stopped before running any test or check.')
   void loadQuality()
   void modelView.refreshTests()
 })

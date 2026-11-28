@@ -1,6 +1,6 @@
 // Small DOM helpers and the visual vocabulary the page's views share: how a resource type, a
 // branch change and a test result look wherever they appear.
-import type { ChangeKind, QualityFlag, TestStatus } from '../src/protocol'
+import type { ChangeKind, FreshnessStatus, FreshnessWindow, QualityFlag, SourceFreshness, TestStatus } from '../src/protocol'
 import { icon, type IconName } from './icons'
 
 export const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -37,11 +37,70 @@ export function statusTag(status: TestStatus | null, title = status ? STATUS_LAB
   return el('span', { class: `test-status status-${status ?? 'never'}`, title }, status ? STATUS_ICONS[status] : '')
 }
 
-/** "Tests: 2 of 5 with problems (failing)", for tooltips on flagged nodes. */
+/** "Tests: 2 of 5 with problems (worst: failing) · Freshness: stale", for tooltips on flagged nodes. */
 export function flagTitle(flag: QualityFlag): string {
-  return flag.problems > 0
-    ? `Tests: ${flag.problems} of ${flag.tests} with problems (worst: ${STATUS_LABELS[flag.status]})`
-    : `Tests: ${flag.tests} ${flag.status === 'skipped' ? 'ran, some skipped' : 'passing'}`
+  const late = flag.freshness !== undefined && flag.freshness !== 'pass'
+  const testProblems = flag.problems - (late ? 1 : 0)
+  // With a late source the worst status may be its freshness, not a test's.
+  const worst = late ? '' : ` (worst: ${STATUS_LABELS[flag.status]})`
+  const tests =
+    flag.tests === 0
+      ? null
+      : testProblems > 0
+        ? `Tests: ${testProblems} of ${flag.tests} with problems${worst}`
+        : `Tests: ${flag.tests} ${flag.status === 'skipped' ? 'ran, some skipped' : 'passing'}`
+  return [tests, flag.freshness ? `Freshness: ${FRESHNESS_LABELS[flag.freshness]}` : null].filter(Boolean).join(' · ')
+}
+
+/** How the page words a source's freshness: dbt's own "error" is a stale source. */
+export const FRESHNESS_LABELS: Record<FreshnessStatus, string> = {
+  error: 'check failed',
+  fail: 'stale',
+  warn: 'late',
+  pass: 'fresh'
+}
+
+/** "12 h", "2 d": a warn_after or error_after. */
+export function windowLabel(window: FreshnessWindow): string {
+  return `${window.count} ${{ minute: 'min', hour: 'h', day: 'd' }[window.period] ?? window.period}`
+}
+
+/** "just now", "5 min ago", "3 h ago", "12 d ago": how long since `iso`. */
+export function age(iso: string): string {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000)
+  if (!(minutes >= 0)) return new Date(iso).toLocaleString()
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h ago`
+  return `${Math.round(minutes / (24 * 60)).toLocaleString()} d ago`
+}
+
+/** "warn after 12 h · stale after 2 d": a source's freshness rule. */
+export function freshnessRule(source: SourceFreshness): string {
+  return [source.warnAfter ? `warn after ${windowLabel(source.warnAfter)}` : null, source.errorAfter ? `stale after ${windowLabel(source.errorAfter)}` : null]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** One source's freshness: status, name, when it last received data; a click shows the source. */
+export function freshnessItem(source: SourceFreshness, show: () => void): HTMLLIElement {
+  const status = source.status
+  const loaded = source.maxLoadedAt ? `loaded ${age(source.maxLoadedAt)}` : status === null ? 'not checked yet' : ''
+  const row = el(
+    'button',
+    {
+      type: 'button',
+      class: 'test-row freshness-row',
+      title: [source.node.id, freshnessRule(source), source.maxLoadedAt ? `Last loaded ${new Date(source.maxLoadedAt).toLocaleString()}` : null, source.checkedAt ? `Checked ${age(source.checkedAt)}` : null]
+        .filter(Boolean)
+        .join('\n')
+    },
+    statusTag(status, status ? FRESHNESS_LABELS[status] : 'not checked yet'),
+    el('span', { class: 'test-text' }, el('span', { class: 'test-label' }, source.node.name)),
+    loaded ? el('span', { class: 'test-found' }, loaded) : null
+  )
+  row.addEventListener('click', show)
+  return el('li', { class: `test-item status-${status ?? 'never'}` }, row, source.message ? el('pre', { class: 'test-message' }, source.message) : null)
 }
 
 /** Each resource type's hue; the stylesheet mixes it toward the theme so it reads in light and dark. */

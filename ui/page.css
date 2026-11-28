@@ -2383,3 +2383,33 @@ code.context-main {
     display: none;
   }
 }
+
+/* Source freshness: a source's row is a button (it shows the source), drawn like a test's. */
+.freshness-row {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.freshness-row:hover .test-label {
+  text-decoration: underline;
+}
+
+/* How long ago it loaded is a fact, not an alarm, unless the source is late or stale. */
+.test-item.status-pass .freshness-row .test-found,
+.test-item.status-never .freshness-row .test-found,
+.test-item.status-error .freshness-row .test-found {
+  color: var(--muted-fg);
+  font-weight: 400;
+}
+
+.freshness-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

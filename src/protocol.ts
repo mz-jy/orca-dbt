@@ -180,13 +180,46 @@ export type TestResult = {
   rows: boolean
 }
 
-/** A node's tests summed up for the flags in the graph, the catalog and the model sheet. */
-export type QualityFlag = { status: TestStatus; problems: number; tests: number }
+/**
+ * A node's tests summed up for the flags in the graph, the catalog and the model sheet; for a
+ * source with a freshness check, `freshness` is its outcome, and counts in `status`.
+ */
+export type QualityFlag = { status: TestStatus; problems: number; tests: number; freshness?: FreshnessStatus }
+
+/** A source's latest freshness check: fresh (`pass`), past warn_after (`warn`), past error_after (`fail`: stale), or the check itself failed (`error`). */
+export type FreshnessStatus = 'error' | 'fail' | 'warn' | 'pass'
+
+/** A warn_after or error_after: `count` periods (minute, hour, day). */
+export type FreshnessWindow = { count: number; period: string }
+
+/** A source with a freshness rule and its latest check (status null: never checked). */
+export type SourceFreshness = {
+  node: NodeSummary
+  warnAfter: FreshnessWindow | null
+  errorAfter: FreshnessWindow | null
+  /** The column or expression that says when a row was loaded; null when the warehouse's own metadata does. */
+  loadedAtField: string | null
+  status: FreshnessStatus | null
+  /** When the source last received data, and when the check looked (ISO). */
+  maxLoadedAt: string | null
+  checkedAt: string | null
+  /** Why the check failed. */
+  message: string | null
+}
+
+export type FreshnessReport = {
+  /** Sources with a rule by latest status; `never` for those not checked yet. */
+  counts: Record<FreshnessStatus | 'never', number>
+  /** When `dbt source freshness` last ran. */
+  checkedAt: string | null
+  /** The sources asked for, worst first. */
+  sources: SourceFreshness[]
+}
 
 /** A test run in progress. */
 export type QualityRun = { jobId: string; label: string; startedAt: number }
 
-/** How a test run ended: `ran` tests have new results, or `error` says why there are none. */
+/** How a test run or freshness check ended: `ran` tests or sources have new results, or `error` says why there are none. */
 export type QualityDone = { jobId: string; ok: boolean; ran: number; error?: string }
 
 export type QualityReport = {
@@ -198,6 +231,9 @@ export type QualityReport = {
   /** The tests asked for, worst first; `more` past the limit. */
   tests: TestResult[]
   more: number
+  /** Source freshness: the stale, warned and failed sources, every one with `all`, or the node's own with `nodeId`. */
+  freshness: FreshnessReport
+  /** The test run or freshness check in progress. */
   running: QualityRun | null
 }
 
@@ -266,7 +302,8 @@ declare module 'orca' {
     'env.choose': { input: { file: string }; output: EnvState }
     /**
      * Test results: the problems (failing, erroring, warning), every test with `all`, or one
-     * node's tests with `nodeId`. Reads target/run_results.json first, so runs from a terminal count.
+     * node's tests with `nodeId`, and source freshness the same way. Reads target/run_results.json
+     * and target/sources.json first, so runs from a terminal count.
      */
     'quality.read': { input: { all?: boolean; nodeId?: string }; output: QualityReport }
     /**
@@ -274,13 +311,18 @@ declare module 'orca' {
      * once; `quality.done` follows. One run at a time per project.
      */
     'quality.run': { input: { nodeId?: string; selector?: string; testIds?: string[] }; output: QualityRun }
+    /**
+     * Runs `dbt source freshness`: on source `nodeId`, or on every source with a freshness rule.
+     * Answers at once; `quality.done` follows. It takes turns with test runs.
+     */
+    'quality.freshness': { input: { nodeId?: string }; output: QualityRun }
   }
   interface PluginPanelEvents {
     'query.done': QueryResult
     /** A file of the project was saved in an editor tab: focus the node it holds. */
     'lineage.reveal': { id: string }
     'parse.done': { jobId: string; ok: boolean; error?: string }
-    /** A test run ended, started from a panel or by an agent over MCP. */
+    /** A test run or a freshness check ended, started from a panel or by an agent over MCP. */
     'quality.done': QualityDone
   }
 }

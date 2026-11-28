@@ -144,7 +144,7 @@ export class TestResults {
   }
 
   /** Counts and flags over every test, and the tests asked for, worst first. */
-  report(graph: Graph, wanted: { all?: boolean; nodeId?: string }, limit: number): Omit<QualityReport, 'running'> {
+  report(graph: Graph, wanted: { all?: boolean; nodeId?: string }, limit: number): Omit<QualityReport, 'running' | 'freshness'> {
     const counts: QualityReport['counts'] = { error: 0, fail: 0, warn: 0, skipped: 0, pass: 0, never: 0 }
     const flags: Record<string, QualityFlag> = {}
     const listed: [TestNode, StoredResult | undefined][] = []

@@ -11,9 +11,10 @@ import type {
   NodeSummary,
   QualityRun,
   QueryResult,
+  SourceFreshness,
   TestResult
 } from '../src/protocol'
-import { button, CHANGE_LABELS, changeTag, copyButton, el, emptyState, errorMessage, fill, isProblem, plural, sectionHead, STATUS_LABELS, swatch, typeColor, typeLabel } from './dom'
+import { age, button, CHANGE_LABELS, changeTag, copyButton, el, emptyState, errorMessage, fill, FRESHNESS_LABELS, isProblem, plural, sectionHead, STATUS_LABELS, statusTag, swatch, typeColor, typeLabel, windowLabel } from './dom'
 import { icon } from './icons'
 import { renderMarkdown } from './markdown'
 import { testItem } from './quality-view'
@@ -29,6 +30,8 @@ export type ModelViewEvents = {
   openEnv(key?: string): void
   /** Run this node's tests. */
   runTests(id: string): void
+  /** Run `dbt source freshness` on this source. */
+  checkFreshness(id: string): void
 }
 
 type Tab = 'overview' | 'columns' | 'tests' | 'data'
@@ -54,6 +57,8 @@ export class ModelView {
   private env: EnvState | null = null
   /** The shown node's tests with their latest results; null while loading. */
   private tests: TestResult[] | null = null
+  /** The shown source's freshness rule and latest check; null for a node without a rule. */
+  private freshness: SourceFreshness | null = null
   private testsSeq = 0
   /** The project's test run in progress, if any (one at a time). */
   private testRun: QualityRun | null = null
@@ -106,6 +111,7 @@ export class ModelView {
       const report = await orca.plugin.request('quality.read', { nodeId: id })
       if (seq !== this.testsSeq || id !== this.shown?.node.id) return
       this.tests = report.tests
+      this.freshness = report.freshness.sources[0] ?? null
       this.testRun = report.running
     } catch (cause) {
       if (seq !== this.testsSeq) return
@@ -133,6 +139,7 @@ export class ModelView {
       this.failure = null
       this.sqlDraft = focus ? this.previewFor(focus.node) : ''
       this.tests = null
+      this.freshness = null
       this.columnFilter = ''
       this.shown = focus
       void this.refreshTests()
@@ -262,10 +269,49 @@ export class ModelView {
           )
         : null,
       description,
+      node.type === 'source' && this.tests !== null ? this.freshnessBlock(node) : null,
       el('section', { class: 'block' }, sectionHead('Properties'), properties(facts.map(([label, value, code]) => [label, value ? (code ? el('code', {}, value) : value) : null]))),
       node.meta.length > 0 ? el('section', { class: 'block' }, sectionHead('Meta', node.meta.length), properties(node.meta.map((entry) => [entry.key, entry.value]))) : null,
       el('section', { class: 'block' }, sectionHead('Upstream', parents.length), this.neighbours(parents, 'No parents: this is where the data enters.')),
       el('section', { class: 'block' }, sectionHead('Downstream', children.length), this.neighbours(children, 'Nothing reads from it.'))
+    )
+  }
+
+  /** A source's freshness: when it last received data against its rule, and a button to check now. */
+  private freshnessBlock(node: NodeDetail): HTMLElement {
+    const fresh = this.freshness
+    if (!fresh) {
+      return el(
+        'section',
+        { class: 'block' },
+        sectionHead('Freshness'),
+        el('p', { class: 'pane-note' }, 'No freshness rule. Give the source a `loaded_at_field` and a `freshness:` with `warn_after` or `error_after` in its YAML to track when it last received data.')
+      )
+    }
+    const status = fresh.status
+    const checking = this.testRun !== null
+    return el(
+      'section',
+      { class: 'block' },
+      sectionHead(
+        'Freshness',
+        null,
+        button(checking ? 'Checking…' : 'Check', () => this.events.checkFreshness(node.id), {
+          small: true,
+          icon: 'refresh',
+          disabled: checking,
+          title: `dbt source freshness --select source:${node.name}`
+        })
+      ),
+      properties([
+        ['Status', el('span', { class: `freshness-status status-${status ?? 'never'}` }, statusTag(status, ''), status ? FRESHNESS_LABELS[status] : 'not checked yet')],
+        ['Last loaded', fresh.maxLoadedAt ? `${age(fresh.maxLoadedAt)} (${new Date(fresh.maxLoadedAt).toLocaleString()})` : null],
+        ['Checked', fresh.checkedAt ? age(fresh.checkedAt) : null],
+        ['Warn after', fresh.warnAfter ? windowLabel(fresh.warnAfter) : null],
+        ['Stale after', fresh.errorAfter ? windowLabel(fresh.errorAfter) : null],
+        ['Loaded at', fresh.loadedAtField ? el('code', {}, fresh.loadedAtField) : null]
+      ]),
+      fresh.message ? el('pre', { class: 'test-message' }, fresh.message) : null
     )
   }
 

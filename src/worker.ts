@@ -38,6 +38,7 @@ import {
 } from './env'
 import { branchDiff, GitError } from './git'
 import { startMcpServer, type McpServer, type McpTool } from './mcp'
+import { freshnessArgs, readFreshness } from './freshness'
 import { findProjectDir, manifestPathFor } from './project'
 import type {
   BranchChanges,
@@ -47,7 +48,9 @@ import type {
   ProjectProblem,
   ProjectStatus,
   QualityDone,
+  QualityReport,
   QualityRun,
+  SourceFreshness,
   QueryResult,
   TestResult
 } from './protocol'
@@ -105,7 +108,9 @@ const DEFAULT_SELECTION_LIMIT = 500
 const QUALITY_LIST_LIMIT = 1000
 /** Test results by project folder. */
 const testResults = new Map<string, TestResults>()
-/** The test run in progress, by project folder. */
+/** How bad a status is, to flag a node with the worst of its tests and its freshness. */
+const TEST_RANK = { error: 4, fail: 3, warn: 2, skipped: 1, pass: 0 }
+/** The test run or freshness check in progress, by project folder. */
 const testRuns = new Map<string, QualityRun>()
 /** The MCP server agents reach, once it listens: null when it is off or its port was taken. */
 let agentServer: Promise<McpServer | null> = Promise.resolve(null)
@@ -267,15 +272,9 @@ export default function activate(orca: OrcaWorkerApi): void {
     return { jobId, sql }
   })
 
-  orca.panels.handle('quality.read', async ({ all, nodeId }) => {
-    const project = await loadProject(orca)
-    const results = resultsFor(project)
-    results.sync(project.graph)
-    return {
-      ...results.report(project.graph, { all, nodeId }, QUALITY_LIST_LIMIT),
-      running: testRuns.get(project.projectDir) ?? null
-    }
-  })
+  orca.panels.handle('quality.read', async (wanted) => qualityReport(await loadProject(orca), wanted, QUALITY_LIST_LIMIT))
+
+  orca.panels.handle('quality.freshness', async ({ nodeId }) => startFreshness(orca, await loadProject(orca), nodeId).running)
 
   orca.panels.handle('quality.run', async (wanted) => startTests(orca, await loadProject(orca), wanted).running)
 
@@ -409,6 +408,32 @@ function startQuery(
 }
 
 /**
+ * Test results and source freshness as the panel and agents read them: the problems, everything
+ * with `all`, or one node's with `nodeId`. A stale source is flagged like a failing test.
+ */
+function qualityReport(project: Project, wanted: { all?: boolean; nodeId?: string }, limit: number): QualityReport {
+  const { graph, projectDir, manifestPath } = project
+  const results = resultsFor(project)
+  results.sync(graph)
+  const report = results.report(graph, wanted, limit)
+  const fresh = readFreshness(graph, dirname(manifestPath))
+  for (const { node, status } of fresh.sources) {
+    if (!status) continue
+    const flag = (report.flags[node.id] ??= { status: 'pass', problems: 0, tests: 0 })
+    flag.freshness = status
+    if (status !== 'pass') flag.problems++
+    if (TEST_RANK[status] > TEST_RANK[flag.status]) flag.status = status
+  }
+  const listed = (source: SourceFreshness) =>
+    wanted.nodeId ? source.node.id === wanted.nodeId : wanted.all || (source.status !== null && source.status !== 'pass')
+  return {
+    ...report,
+    freshness: { counts: fresh.counts, checkedAt: fresh.checkedAt, sources: fresh.sources.filter(listed).slice(0, limit) },
+    running: testRuns.get(projectDir) ?? null
+  }
+}
+
+/**
  * Starts `dbt test` on what `wanted` names (see `testArgs`), one run at a time per project.
  * When it ends, open panels hear `quality.done` (whoever started it) and `done` resolves with the same.
  */
@@ -417,24 +442,52 @@ function startTests(
   project: Project,
   wanted: { nodeId?: string; selector?: string; testIds?: string[] }
 ): { running: QualityRun; done: Promise<QualityDone> } {
-  const { workspace, projectDir, graph } = project
-  if (testRuns.has(projectDir)) {
-    throw Object.assign(new Error('Tests are already running. Cancel them first.'), { code: 'invalid_params' })
-  }
-  const run = testArgs(graph, wanted)
+  const run = testArgs(project.graph, wanted)
   if (!run) throw Object.assign(new Error('The manifest no longer has those tests: parse again.'), { code: 'invalid_params' })
+  return startQualityRun(orca, project, run, (ended, startedAt) => {
+    const results = resultsFor(project)
+    results.sync(project.graph)
+    if (ended) results.correct(loggedTests(ended))
+    // A run that wrote run_results.json ran its tests, failing or not; one that did not
+    // stopped before them (a compile error, a missing profile).
+    return results.last && Date.parse(results.last.at) >= startedAt - 1000 ? results.last.tests : null
+  })
+}
+
+/**
+ * Starts `dbt source freshness` on source `nodeId`, or on every source with a rule. dbt exits
+ * with an error when a source is stale: a run that wrote sources.json checked its sources.
+ */
+function startFreshness(orca: OrcaWorkerApi, project: Project, nodeId?: string): { running: QualityRun; done: Promise<QualityDone> } {
+  const run = freshnessArgs(project.graph, nodeId)
+  if (!run) throw Object.assign(new Error('Only sources have a freshness to check.'), { code: 'invalid_params' })
+  return startQualityRun(orca, project, run, (_ended, startedAt) => {
+    const fresh = readFreshness(project.graph, dirname(project.manifestPath))
+    return fresh.checkedAt && Date.parse(fresh.checkedAt) >= startedAt - 1000 ? fresh.checked : null
+  })
+}
+
+/**
+ * Runs `dbt <run.args>` as the project's one test run or freshness check at a time. `counted`
+ * reads what the run wrote: how many results it left, or null when it stopped before any.
+ */
+function startQualityRun(
+  orca: OrcaWorkerApi,
+  project: Project,
+  run: { args: string[]; label: string },
+  counted: (ended: DbtResult | undefined, startedAt: number) => number | null
+): { running: QualityRun; done: Promise<QualityDone> } {
+  const { workspace, projectDir } = project
+  if (testRuns.has(projectDir)) {
+    throw Object.assign(new Error(`Already running ${testRuns.get(projectDir)!.label}. Cancel it first.`), { code: 'invalid_params' })
+  }
   const startedAt = Date.now()
   const job = runJob(orca, workspace, projectDir, run.args, 'artifacts')
   const running = { jobId: job.jobId, label: run.label, startedAt }
   testRuns.set(projectDir, running)
   const done = job.done.then(({ jobId, run: ended, error }): QualityDone => {
     testRuns.delete(projectDir)
-    const results = resultsFor(project)
-    results.sync(graph)
-    if (ended) results.correct(loggedTests(ended))
-    // A run that wrote run_results.json ran its tests, failing or not; one that did not
-    // stopped before them (a compile error, a missing profile).
-    const ran = results.last && Date.parse(results.last.at) >= startedAt - 1000 ? results.last.tests : null
+    const ran = counted(ended, startedAt)
     const outcome: QualityDone =
       ran !== null && !error ? { jobId, ok: true, ran } : { jobId, ok: false, ran: 0, error: error ?? dbtError(ended!) }
     orca.panels.post('quality.done', outcome)
@@ -718,6 +771,24 @@ function briefTest(test: TestResult) {
   }
 }
 
+/** A source's freshness as an agent reads it. */
+function briefFreshness(source: SourceFreshness) {
+  const window = (after: SourceFreshness['warnAfter']) => (after ? `${after.count} ${after.period}${after.count === 1 ? '' : 's'}` : null)
+  return {
+    source: source.node.name,
+    id: source.node.id,
+    status: source.status === null ? 'never checked' : FRESHNESS_WORDS[source.status],
+    lastLoadedAt: source.maxLoadedAt,
+    checkedAt: source.checkedAt,
+    warnAfter: window(source.warnAfter),
+    errorAfter: window(source.errorAfter),
+    loadedAtField: source.loadedAtField,
+    message: source.message
+  }
+}
+
+const FRESHNESS_WORDS = { pass: 'fresh', warn: 'warn: past warn_after', fail: 'stale: past error_after', error: 'check failed' }
+
 const brief = ({ id, name, type }: { id: string; name: string; type: string }) => ({ id, name, type })
 
 /** What agents can do over MCP: the panel's catalog, lineage, changes, tests and queries, each answered in one call. */
@@ -775,14 +846,14 @@ function agentTools(orca: OrcaWorkerApi): McpTool[] {
         const loaded = await project(args)
         const { graph } = loaded
         const { id } = namedNode(graph, textArg(args, 'node') ?? '')
-        const results = resultsFor(loaded)
-        results.sync(graph)
+        const report = qualityReport(loaded, { nodeId: id }, AGENT_LIST_LIMIT)
         const found = focus(graph, id)!
         return {
           ...found.node,
           parents: found.parents.map(brief),
           children: found.children.map(brief),
-          tests: results.report(graph, { nodeId: id }, AGENT_LIST_LIMIT).tests.map(briefTest)
+          tests: report.tests.map(briefTest),
+          ...(report.freshness.sources.length > 0 ? { freshness: briefFreshness(report.freshness.sources[0]) } : {})
         }
       }
     },
@@ -929,6 +1000,36 @@ function agentTools(orca: OrcaWorkerApi): McpTool[] {
           counts,
           problems: problems.slice(0, AGENT_LIST_LIMIT).map(briefTest),
           ...(problems.length > AGENT_LIST_LIMIT ? { more: problems.length - AGENT_LIST_LIMIT } : {})
+        }
+      }
+    },
+    {
+      name: 'dbt_source_freshness',
+      description:
+        "Source freshness: for each source with a warn_after or error_after rule, when it last received data, when that was checked, and whether it is fresh, past warn_after, stale (past error_after) or its check failed; stale ones first. Reads the latest check (target/sources.json; runs from a terminal count). With `check`, runs `dbt source freshness` on the warehouse first and waits for it. With `source`, one source only.",
+      input: {
+        properties: {
+          check: { type: 'boolean', description: 'Run `dbt source freshness` now, rather than read the latest check.' },
+          source: { type: 'string', description: 'One source, by name (raw.orders) or unique id (source.shop.raw.orders).' },
+          ...workspace
+        }
+      },
+      readOnly: false,
+      run: async (args, signal) => {
+        const loaded = await project(args)
+        const source = textArg(args, 'source')
+        const nodeId = source && namedNode(loaded.graph, source).id
+        if (args.check === true) {
+          const started = startFreshness(orca, loaded, nodeId)
+          stopWith(signal, started.running.jobId)
+          const done = await started.done
+          if (!done.ok) throw new Error(done.error ?? 'dbt source freshness stopped before checking any source.')
+        }
+        const { freshness } = qualityReport(loaded, nodeId ? { nodeId } : { all: true }, AGENT_LIST_LIMIT)
+        return {
+          counts: { fresh: freshness.counts.pass, warn: freshness.counts.warn, stale: freshness.counts.fail, checkFailed: freshness.counts.error, neverChecked: freshness.counts.never },
+          lastCheck: freshness.checkedAt,
+          sources: freshness.sources.map(briefFreshness)
         }
       }
     },

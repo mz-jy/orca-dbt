@@ -3,7 +3,7 @@
 // query what a failing test found, and draw the affected nodes in the graph.
 import { selectorTerm } from '../src/graph'
 import type { NodeSummary, QualityReport, TestResult, TestStatus } from '../src/protocol'
-import { button, el, emptyState, fill, flagTitle, isProblem, plural, STATUS_LABELS, statusTag, swatch } from './dom'
+import { age, button, el, emptyState, fill, flagTitle, freshnessItem, isProblem, plural, sectionHead, STATUS_LABELS, statusTag, swatch } from './dom'
 import { icon } from './icons'
 
 export type QualityViewEvents = {
@@ -18,6 +18,8 @@ export type QualityViewEvents = {
   draw(selector: string): void
   /** List every test (true) or only problems. */
   listAll(all: boolean): void
+  /** Run `dbt source freshness` on every source with a rule. */
+  checkFreshness(): void
 }
 
 const SECOND = 1000
@@ -63,7 +65,7 @@ export class QualityView {
         'div',
         { class: 'pane-head' },
         el('h2', {}, 'Quality'),
-        el('span', { class: 'pane-head-meta' }, report.lastRun ? `Last run ${ago(report.lastRun)}` : 'No runs yet'),
+        el('span', { class: 'pane-head-meta' }, report.lastRun ? `Last run ${age(report.lastRun)}` : 'No runs yet'),
         el('span', { class: 'spacer' })
       ),
       el(
@@ -79,7 +81,7 @@ export class QualityView {
               stat(counts.pass, 'passing', counts.pass > 0 ? 'ok' : ''),
               stat(counts.never + counts.skipped, counts.skipped > 0 ? 'not run / skipped' : 'never run')
             ),
-        total > 0 ? this.runBar(report, options.selector, failing) : null,
+        total > 0 || report.running ? this.runBar(report, options.selector, failing, total) : null,
         options.error ? el('div', { class: 'callout danger' }, icon('alert', 14), el('pre', {}, options.error)) : null,
         total > 0 && counts.never === total
           ? el('p', { class: 'pane-note' }, 'No results yet. Run the tests here, or `dbt test` in a terminal: the results show up here either way.')
@@ -105,12 +107,43 @@ export class QualityView {
           : total > 0 && counts.never < total && !options.all
             ? emptyState('check', 'All clear', 'No failing, erroring or warning tests in the latest results.')
             : null,
-        report.more > 0 ? el('p', { class: 'pane-note' }, `${report.more} more not listed.`) : null
+        report.more > 0 ? el('p', { class: 'pane-note' }, `${report.more} more not listed.`) : null,
+        this.freshness(report, options.all)
       )
     )
   }
 
-  private runBar(report: QualityReport, selector: string, failing: readonly TestResult[]): HTMLElement {
+  /**
+   * Source freshness: the stale, late and failed sources (every source with `all`), a line that
+   * counts the rest, and a button to check again. Nothing when no source has a freshness rule.
+   */
+  private freshness(report: QualityReport, all: boolean): HTMLElement | null {
+    const { counts, checkedAt, sources } = report.freshness
+    const withRule = counts.error + counts.fail + counts.warn + counts.pass + counts.never
+    if (withRule === 0) return null
+    const problems = counts.error + counts.fail + counts.warn
+    const rest = all
+      ? []
+      : [counts.pass > 0 ? `${counts.pass} fresh` : null, counts.never > 0 ? `${counts.never} not checked yet` : null].filter(Boolean)
+    return el(
+      'section',
+      { class: 'block freshness' },
+      sectionHead(
+        'Source freshness',
+        problems > 0 ? problems : null,
+        button('Check', () => this.events.checkFreshness(), {
+          small: true,
+          icon: 'refresh',
+          disabled: report.running !== null,
+          title: 'dbt source freshness'
+        })
+      ),
+      sources.length > 0 ? el('ul', { class: 'test-list' }, ...sources.map((source) => freshnessItem(source, () => this.events.show(source.node.id)))) : null,
+      el('p', { class: 'pane-note' }, [...rest, checkedAt ? `checked ${age(checkedAt)}` : 'never checked'].join(' · '))
+    )
+  }
+
+  private runBar(report: QualityReport, selector: string, failing: readonly TestResult[], total: number): HTMLElement {
     const running = report.running
     if (running) {
       const elapsed = el('span', { class: 'mono muted' })
@@ -127,6 +160,7 @@ export class QualityView {
         button('Cancel', () => this.events.cancel(running.jobId), { small: true, icon: 'stop' })
       )
     }
+    if (total === 0) return el('div', {})
     return el(
       'div',
       { class: 'run-bar' },
@@ -202,16 +236,6 @@ export function testItem(test: TestResult, showRows: (() => void) | null): HTMLL
 
 function stat(value: number, label: string, tone = ''): HTMLElement {
   return el('div', { class: `stat ${tone}` }, el('span', { class: 'stat-value' }, value.toLocaleString()), el('span', { class: 'stat-label' }, label))
-}
-
-/** "just now", "5 min ago", "3 h ago", else the date. */
-function ago(iso: string): string {
-  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000)
-  if (!(minutes >= 0)) return new Date(iso).toLocaleString()
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes} min ago`
-  if (minutes < 24 * 60) return `${Math.round(minutes / 60)} h ago`
-  return new Date(iso).toLocaleDateString()
 }
 
 function clock(ms: number): string {

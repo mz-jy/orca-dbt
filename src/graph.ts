@@ -4,6 +4,7 @@ import type {
   CatalogLevel,
   ColumnInfo,
   Direction,
+  FreshnessWindow,
   GroupBy,
   LineageGraph,
   NodeDetail,
@@ -25,6 +26,8 @@ export type GraphNode = Omit<NodeDetail, 'parents' | 'children'> & {
   patchFile: string | null
   /** Macros the node's SQL calls directly. */
   macros: string[]
+  /** A source's freshness rule (warn_after, error_after, loaded_at_field); null without one. */
+  freshness: { warnAfter: FreshnessWindow | null; errorAfter: FreshnessWindow | null; loadedAtField: string | null } | null
 }
 
 /**
@@ -93,7 +96,19 @@ type RawNode = {
   /** Where dbt writes the compiled SQL (Fusion records it for tests), and the test's own path. */
   compiled_path?: string | null
   path?: string
+  /** Sources: the freshness rule, here (dbt v1 before 1.10, v2) or under config. Unset windows are nulls. */
+  freshness?: RawFreshnessRule | null
+  loaded_at_field?: string | null
 }
+
+export type RawWindow = { count?: number | null; period?: string | null } | null
+
+/** A warn_after or error_after with a count and a period; dbt writes unset ones as nulls. */
+export function freshnessWindow(raw: RawWindow | undefined): FreshnessWindow | null {
+  return raw && typeof raw.count === 'number' && raw.period ? { count: raw.count, period: raw.period } : null
+}
+
+type RawFreshnessRule = { warn_after?: RawWindow; error_after?: RawWindow }
 
 export type RawManifest = {
   metadata?: { project_name?: string; generated_at?: string; dbt_version?: string }
@@ -253,8 +268,18 @@ function toNode(id: string, type: string, raw: RawNode, projectName: string): Gr
     group: raw.group ?? null,
     access: raw.access ?? null,
     patchFile: raw.patch_path ? raw.patch_path.replace(/^[^/:]+:\/\//, '') : null,
-    macros: raw.depends_on?.macros ?? []
+    macros: raw.depends_on?.macros ?? [],
+    freshness: type === 'source' ? freshnessRule(raw) : null
   }
+}
+
+function freshnessRule(raw: RawNode): GraphNode['freshness'] {
+  const rule = raw.freshness ?? (raw.config?.freshness as RawFreshnessRule | null | undefined)
+  const warnAfter = freshnessWindow(rule?.warn_after)
+  const errorAfter = freshnessWindow(rule?.error_after)
+  if (!warnAfter && !errorAfter) return null
+  const field = raw.loaded_at_field || raw.config?.loaded_at_field
+  return { warnAfter, errorAfter, loadedAtField: typeof field === 'string' && field ? field : null }
 }
 
 function toTest(id: string, raw: RawNode, kind: TestNode['kind'], nodes: Map<string, GraphNode>): TestNode {
