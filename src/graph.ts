@@ -348,6 +348,21 @@ export function focus(graph: Graph, id: string): NodeFocus | null {
   }
 }
 
+/**
+ * The project's node a file holds, by its project-relative path: the model, seed, snapshot or
+ * analysis a .sql/.py/.csv file is, else the first node a YAML file documents or defines (a
+ * patched model before a source). Null for files no node comes from, such as macros.
+ */
+export function nodeForFile(graph: Graph, file: string): string | null {
+  let defined: string | null = null
+  for (const node of graph.nodes.values()) {
+    if (node.packageName !== graph.projectName) continue
+    if (node.patchFile === file) return node.id
+    if (node.file === file) defined ??= node.id
+  }
+  return defined
+}
+
 /** Name matches first (exact, prefix, anywhere), then id, column names and descriptions. */
 export function search(graph: Graph, query: string, limit: number): NodeSummary[] {
   const needle = query.trim().toLowerCase()

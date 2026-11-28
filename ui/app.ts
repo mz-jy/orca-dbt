@@ -817,6 +817,11 @@ detailsElement.addEventListener('click', (event) => {
   if (/^(https?:|mailto:)/i.test(href)) void orca.shell?.openExternal(href)
 })
 
+// The worker hears a project file being saved (Orca reports no other editor moment): follow it.
+orca.plugin.on('lineage.reveal', ({ id }) => {
+  if (state.status?.ok && state.focus !== id) void focusNode(id)
+})
+
 orca.plugin.on('parse.done', (done) => {
   if (done.jobId !== parseJob) return
   parseJob = null

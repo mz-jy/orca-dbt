@@ -4,13 +4,14 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, join, relative } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   buildGraph,
   catalogLevel,
   focus,
   neighbors,
+  nodeForFile,
   previewSql,
   summarize,
   search,
@@ -94,6 +95,12 @@ const testRuns = new Map<string, QualityRun>()
 
 export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('lineage.status', () => projectStatus(orca))
+
+  // Orca tells plugins nothing about the file in front of the person; a save is the one moment a
+  // path reaches a plugin. The save never waits: the hook passes at once and the panel follows.
+  orca.hooks.on('editor.save.before', ({ path }) => {
+    void revealSaved(orca, path)
+  })
 
   orca.panels.handle('project.choose', async ({ folder }) => {
     await orca.settings.set('projectDir', folder.trim())
@@ -311,6 +318,16 @@ export default function activate(orca: OrcaWorkerApi): void {
     controller?.abort()
     return { cancelled: controller !== undefined }
   })
+}
+
+/** Tells open panels to focus the node a saved file of the focused project holds. */
+async function revealSaved(orca: OrcaWorkerApi, path: string): Promise<void> {
+  const project = await loadProject(orca).catch(() => null)
+  if (!project) return
+  const file = relative(project.projectDir, isAbsolute(path) ? path : join(project.workspace.path, path))
+  if (file.startsWith('..') || isAbsolute(file)) return
+  const id = nodeForFile(project.graph, file.split(sep).join('/'))
+  if (id) orca.panels.post('lineage.reveal', { id })
 }
 
 export function deactivate(): void {

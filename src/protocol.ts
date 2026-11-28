@@ -274,6 +274,8 @@ declare module 'orca' {
   }
   interface PluginPanelEvents {
     'query.done': QueryResult
+    /** A file of the project was saved in an editor tab: focus the node it holds. */
+    'lineage.reveal': { id: string }
     'parse.done': { jobId: string; ok: boolean; error?: string }
     /** A test run ended: `ran` tests have new results, or `error` says why there are none. */
     'quality.done': { jobId: string; ok: boolean; ran: number; error?: string }

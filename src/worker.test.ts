@@ -199,6 +199,25 @@ test('queries through the dbt command and parses through the wrapper, with the .
   await worker.deactivate()
 })
 
+test('focuses the lineage on the node a saved project file holds, without holding the save', async () => {
+  const worker = await mountWorker(main, { host: fixtureHost() })
+  const save = async (path: string) => {
+    const decision = await worker.hooks.fire('editor.save.before', { workspaceId, path, text: '' })
+    assert.equal(decision.kind, 'continue')
+  }
+  // dbt_project.yml holds no node; then a model by absolute path and a sources file relative to the workspace.
+  await save('analytics/dbt_project.yml')
+  await save(join(root, 'analytics', 'models', 'marts', 'orders.sql'))
+  assert.deepEqual(await posted(worker, 'lineage.reveal'), { id: 'model.shop.orders' })
+  await save('analytics/models/staging/sources.yml')
+  for (let waited = 0; waited < 5000 && worker.posts.length < 2; waited += 10) await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.deepEqual(
+    worker.posts.map((post) => post.payload),
+    [{ id: 'model.shop.orders' }, { id: 'source.shop.raw.orders' }]
+  )
+  await worker.deactivate()
+})
+
 test('draws the neighborhood a graph request asks for', async () => {
   const worker = await mountWorker(main, { host: fixtureHost() })
   const graph = await worker.request('lineage.graph', { id: 'model.shop.orders', up: 1, down: 1 })

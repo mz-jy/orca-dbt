@@ -18,6 +18,11 @@
   "pluginApi": 1,
   "main": "src/worker.ts",
   "contributes": {
+    "hooks": [
+      {
+        "event": "editor.save.before"
+      }
+    ],
     "panels": [
       {
         "id": "dbt",
